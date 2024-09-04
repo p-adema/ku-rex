@@ -24,6 +24,8 @@ while arlo.read_front_ping_sensor() > 427:
     if changed:
         time.sleep(1 / 40)
         arlo.go_diff(speed, round(speed * 63 / 66), True, True)
-    time.sleep(1 / 40 if changed else 1 / 30)
+        time.sleep(1 / 40)
+    else:
+        time.sleep(1 / 30)
 
 print(arlo.read_front_ping_sensor())
