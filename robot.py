@@ -1,4 +1,6 @@
 # Arlo robot controller
+from __future__ import annotations
+
 import time
 
 import serial
@@ -72,6 +74,16 @@ class Robot:
 
         cmd = f"d{power_left:d},{power_right:d},{forward_left:d},{forward_right:d}\n"
         return self.send_command(cmd)
+
+    def go(self, left: int, right: int, t: float = 0.0):
+        assert self._valid_motor_power(abs(left)), f"Invalid value {left=}"
+        assert self._valid_motor_power(abs(right)), f"Invalid value {right=}"
+        cmd = (
+            f"d{round(abs(left)):d},{round(abs(right)):d},{left > 0:d},{right > 0:d}\n"
+        )
+        res = self.send_command(cmd)
+        time.sleep(t)
+        return res
 
     def stop(self) -> bytes:
         """Send a stop command to stop motors.
