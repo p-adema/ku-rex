@@ -53,7 +53,7 @@ class Robot:
     def _valid_motor_power(power: int) -> bool:
         """Checks if a power value is in the set {0, [30;127]}.
         This is an internal utility function."""
-        return (power == 0) or (30 <= power <= 127)
+        return (power == 0) or (40 <= power <= 127)
 
     def go_diff(
         self, power_left: int, power_right: int, forward_left: bool, forward_right: bool
