@@ -9,41 +9,66 @@ print("Running ...")
 
 
 # send a go_diff command to drive forward
-left_speed = 64
-right_speed = 64
-
+left_speed = 45
+right_speed = 45
 
 waitTime = 0.041
-print(arlo.go_diff(left_speed, right_speed, True, True))
 
+def distanceStop():
+    front = arlo.read_front_ping_sensor() < 300
+    return front
 
-
-sleep(3)
-# send a stop command
-print(arlo.stop())
+def distanceGo():
+    front = arlo.read_front_ping_sensor() > 400
+    return front
 
 def drive(left, right):
     arlo.go(left, right)
-    while True:
-        if arlo.read_front_ping_sensor() < 300:
-            break
-        sleep(waitTime)
-        if arlo.read_left_ping_sensor() < 300:
-            break
-        sleep(waitTime)
-        if arlo.read_right_ping_sensor() < 300:
-            break
-        sleep(waitTime)
+    while not distanceStop():
         pass
-    sleep(waitTime)
     arlo.stop()
     sleep(waitTime)
+    print(arlo.read_front_ping_sensor())
+    print(arlo.read_left_ping_sensor())
     avoidObstacle(left, right)
 
-def avoidObstacle(left, right):
-    arlo.go_diff(left_speed, right_speed, True, False)
+def courseReturn(left, right, i):
+    arlo.go_diff(left, right, True, True)
+    print("BEFORE")
+    while arlo.read_right_ping_sensor() > 200:
+        pass
+    print("MIDDLE")
+    while arlo.read_right_ping_sensor() < 300:
+        pass
+    print("DONE")
     sleep(1)
     arlo.stop()
+    print(i)
 
+def creepLeft(left, right, t):
+        arlo.go_diff(left, right, False, True)
+        sleep(1)
+        arlo.stop()
+        sleep(waitTime)
+        arlo.go_diff(left, right, True, True)
+        sleep(t)
+        arlo.stop()
+        sleep(waitTime)
+        arlo.go_diff(left, right, True, False)
+        sleep(1)
+        arlo.stop()
+        sleep(waitTime)
+
+def avoidObstacle(left, right):
+    i = 0
+    while not distanceGo():
+        creepLeft(left, right, 0.5)
+        i = i + 1
+    creepLeft(left, right, 1)
+    courseReturn(left, right, i+2)
+    #drive(left, right)
+
+input()
 drive(left_speed, right_speed)
+
 print("Finished")
