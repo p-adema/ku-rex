@@ -1,3 +1,4 @@
+import matplotlib
 import matplotlib.pyplot as plt
 import numpy as np
 
@@ -9,32 +10,42 @@ m_all = {
     'Wall panel': {100: [109, 108, 109, 108, 109, 108, 109, 108, 108, 108, 108, 109, 108, 109, 108, 109, 108, 108, 109, 108], 500: [515, 512, 511, 511, 511, 511, 511, 511, 512, 511, 511, 511, 511, 512, 511, 512, 511, 511, 511, 511], 1000: [990, 989, 989, 990, 990, 989, 990, 990, 989, 989, 990, 990, 989, 990, 990, 989, 990, 990, 989, 989], 1500: [1485, 1489, 1489, 1485, 1485, 1489, 1489, 1485, 1489, 1485, 1486, 1486, 1490, 1486, 1490, 1486, 1486, 1486, 1486, 1490], 2000: [1977, 1973, 1973, 1973, 1973, 1973, 1973, 1973, 1972, 1972, 1976, 1971, 1972, 1973, 1973, 1973, 1977, 1971, 1973, 1972], 3000: [2963, 2964, 2963, 2963, 2962, 2963, 2963, 2963, 2962, 2963, 2963, 2963, 2963, 2964, 2963, 2963, 2963, 2963, 2963, 2963]},
     'Bottle': {100: [130, 131, 130, 128, 130, 131, 127, 130, 127, 127, 128, 127, 128, 130, 127, 127, 127, 131, 127, 131], 500: [519, 518, 518, 519, 518, 518, 518, 518, 518, 518, 518, 518, 518, 518, 518, 518, 518, 518, 518, 518], 1000: [3102, 1041, 3102, 3102, 3103, 3102, 1820, 1772, 1767, 1726, 3102, 1600, 1591, 1579, 3102, 3103, 1547, 3103, 1538, 1558], 1500: [3102, 3102, 3102, 3102, 3103, 3102, 3102, 3102, 3102, 3103, 3102, 3102, 3103, 3102, 1533, 3103, 3102, 3103, 3102, 3103], 2000: [2223, 2205, 2222, 2246, 2213, 2240, 2163, 2201, 3102, 3102, 3103, 3103, 3102, 3103, 3102, 3102, 2195, 2187, 3102, 3103]},
 }
-item = 'Bottle'
-measurements: dict[int, list[int]] = m_all[item]
 # fmt: on
-stds = []
-print(measurements[1000])
-for true, sonar in measurements.items():
-    sonar = np.array(sonar)
-
-    print(f"at {true: >5}, measured {sonar.mean() / true:.1%}")
-    stds.append(sonar.std())
-    plt.scatter(
-        np.repeat(true, len(sonar)),
-        sonar,
-        c="red",
-        s=0.1,
-        label="Datapoint" if true == 100 else "_",
+matplotlib.rcParams["figure.dpi"] = 300
+_, axs = plt.subplots(5, 2, figsize=(10, 15), sharex=True)
+for (ax_ideal, ax_dev), (item, measurements) in zip(axs, m_all.items()):
+    measurements: dict[int, list[int]]
+    stds = []
+    ax_ideal.plot(
+        (0, 3_000),
+        (0, 3_000),
+        label="Ideal 1:1",
+        linestyle="dashed",
     )
+    for true, sonar in measurements.items():
+        sonar = np.array(sonar)
 
-plt.plot((0, 2_000), (0, 2_000), label="Ideal 1:1", linestyle="dashed")
-plt.legend()
-plt.title(f"Sonar measurements versus true distance ({item})")
-plt.xlabel("True distance (mm)")
-plt.ylabel("Sonar measured distance (mm)")
-plt.show()
-plt.plot(list(measurements.keys()), stds)
-plt.title(f"Sonar standard deviation versus distance ({item})")
-plt.xlabel("True distance (mm)")
-plt.ylabel("Standard deviation (mm)")
+        # print(f"at {true: >5}, measured {sonar.mean() / true:.1%}")
+        stds.append(sonar.std())
+        ax_ideal.scatter(
+            np.repeat(true, len(sonar)),
+            sonar,
+            c="red",
+            s=1,
+            marker="x",
+            label="Datapoints" if true == 100 else "_",
+        )
+
+    ax_ideal.legend()
+    ax_ideal.set_title(f"Sonar measurements versus true distance ({item})")
+    # ax_ideal.xlabel("True distance (mm)")
+    # ax_ideal.ylabel("Sonar measured distance (mm)")
+
+    ax_dev.scatter(list(measurements.keys()), stds)
+    ax_dev.plot(list(measurements.keys()), stds, linestyle="dashed")
+    ax_dev.set_title(f"Sonar standard deviation versus distance ({item})")
+    # ax_dev.xlabel("True distance (mm)")
+    # ax_dev.ylabel("Standard deviation (mm)")
+
+plt.tight_layout()
 plt.show()

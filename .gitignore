@@ -6,6 +6,7 @@ __pycache__/
 
 *.png
 *.tex
+*.pdf
 # C extensions
 *.so
 
