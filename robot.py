@@ -114,6 +114,14 @@ class Robot:
         """Read the right sonar ping sensor and return the measurement in millimeters"""
         return self.read_sensor(3)
 
+    def sonar(self) -> tuple[int, int, int]:
+        """Read the left, front and right sensors, return in millimeters"""
+        return (
+            self.read_sensor(2),
+            self.read_sensor(0),
+            self.read_sensor(3),
+        )
+
     def read_left_wheel_encoder(self, do_sleep: bool = True) -> bytes:
         """Reads the left wheel encoder counts since last reset_encoder_counts command.
         The encoder has 144 counts for one complete wheel revolution."""
