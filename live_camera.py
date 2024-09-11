@@ -1,17 +1,6 @@
 import cv2  # Import the OpenCV library
 import numpy as np
 
-if int(cv2.__version__[0]) >= 3:
-
-    def cap_prop_id(prop):
-        """returns OpenCV VideoCapture property id given, e.g., "FPS" """
-        return getattr(cv2, "CAP_PROP_" + prop)
-else:
-
-    def cap_prop_id(prop):
-        """returns OpenCV VideoCapture property id given, e.g., "FPS" """
-        return getattr(cv2.cv, "CV_CAP_PROP_" + prop)
-
 
 def get_camera(
     capture_width: int = 1024, capture_height: int = 720, framerate: int = 30
@@ -44,13 +33,15 @@ kernel_size = 3
 # Open a camera device for capturing
 cam = get_camera()
 
+
 if not cam.isOpened():
     print("Could not open camera")
     exit(-1)
 
+
 # Get camera properties
-width = int(cam.get(cap_prop_id("FRAME_WIDTH")))
-height = int(cam.get(cap_prop_id("FRAME_HEIGHT")))
+width = int(cam.get(cv2.CAP_PROP_FRAME_WIDTH))
+height = int(cam.get(cv2.CAP_PROP_FRAME_HEIGHT))
 print(f"{width =}, {height =}")
 
 
@@ -63,18 +54,15 @@ cv2.moveWindow(window_ref, 100, 100)
 # Preallocate memory
 image = np.empty((height, width), dtype=np.uint8)
 
+cam.set(cv2.CAP_PROP_BUFFERSIZE, 1)
+
 while cv2.waitKey(4) == -1:  # Wait for a key pressed event
     retval, image = cam.read(image)
+    assert retval, "Failed to read image"
 
-    if not retval:
-        print("Couldn't read image")
-        exit(-1)
-
-    gray_frame = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
-    edge_frame = cv2.blur(gray_frame, (3, 3))
-    cv2.Canny(edge_frame, low_threshold, low_threshold * ratio, edge_frame, kernel_size)
+    frame = cv2.cvtColor(image[::8, ::8], cv2.COLOR_BGR2GRAY)
 
     # Show frames
-    cv2.imshow(window_ref, edge_frame)
+    cv2.imshow(window_ref, frame)
 
 cv2.destroyAllWindows()
