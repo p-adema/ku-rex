@@ -45,6 +45,6 @@ def photo(name: str):
 try:
     while True:
         dist = int(input("Current distance: "))
-        photo(f"approx_{dist}")
+        photo(f"calibrate_{dist}")
 except KeyboardInterrupt:
     pass
