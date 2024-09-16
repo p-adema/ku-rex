@@ -26,19 +26,22 @@ def distanceGo():
     front = arlo.read_front_ping_sensor() > 400
     return front
 
+
 def swerveRight(left, right):
-    arlo.go_diff(left+5, right, True, True)
+    arlo.go_diff(left + 5, right, True, True)
     sleep(waitTime)
     while arlo.read_right_ping_sensor() < 50:
         pass
-    arlo.go_diff(left,right, True, True)
+    arlo.go_diff(left, right, True, True)
+
 
 def swerveLeft(left, right):
-    arlo.go_diff(left, right+10, True, True)
+    arlo.go_diff(left, right + 10, True, True)
     sleep(waitTime)
     while arlo.read_right_ping_sensor() < 50:
         pass
-    arlo.go_diff(left,right, True, True)
+    arlo.go_diff(left, right, True, True)
+
 
 def drive(left, right):
     arlo.go(left, right)
@@ -77,10 +80,11 @@ def courseReturn(left, right, i):
     arlo.go_diff(left, right, True, False)
     sleep(1.1)
     arlo.go_diff(left, right, True, True)
-    sleep(0.5*i)
+    sleep(0.5 * i)
     arlo.go_diff(left, right, False, True)
     sleep(1.1)
     print(i)
+
 
 def creepLeft(left, right, t):
     arlo.go_diff(left, right, False, True)
