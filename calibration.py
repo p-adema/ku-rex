@@ -1,5 +1,8 @@
 from time import sleep
 
+import numpy as np
+import cv2 as cv
+import glob
 import robot
 
 # Create a robot object and initialize
@@ -99,7 +102,7 @@ FRONT_TARGET = 420
 RIGHT_TARGET = 2070
 BACK_TARGET = 2048
 
-approach()
+'''approach()
 for _ in range(5):
     for _ in range(3):
         drive()
@@ -112,7 +115,7 @@ for _ in range(5):
     approach()
     sleep(0.5)
 
-arlo.stop()
+arlo.stop()'''
 # sleep(1)
 # drive()
 # sleep(0.5)
@@ -126,3 +129,49 @@ arlo.stop()
 # print("Left = " + str(arlo.read_left_wheel_encoder()))
 # sleep(waitTime)
 # print("Right = " + str(arlo.read_right_wheel_encoder()))
+ 
+# termination criteria
+criteria = (cv.TERM_CRITERIA_EPS + cv.TERM_CRITERIA_MAX_ITER, 30, 0.001)
+ 
+# prepare object points, like (0,0,0), (1,0,0), (2,0,0) ....,(6,5,0)
+objp = np.zeros((6*7,3), np.float32)
+objp[:,:2] = np.mgrid[0:7,0:6].T.reshape(-1,2)
+ 
+# Arrays to store object points and image points from all the images.
+objpoints = [] # 3d point in real world space
+imgpoints = [] # 2d points in image plane.
+
+import aruco_utils
+
+cam = aruco_utils.get_camera_picamera()
+
+images = []
+for i in range(10):
+    print('Say chess')
+    image = cam.capture_array("main")[::, ::]
+    np.save(f'data/CalPic_{i}', image)
+    images.append(image)
+    for i in range(4):
+        print(f'{i+1}')
+        sleep(1)
+
+'''for img in images:
+    print('New Image')
+    
+    gray = cv.cvtColor(img, cv.COLOR_BGR2GRAY)
+    
+    # Find the chess board corners
+    ret, corners = cv.findChessboardCorners(gray, (6,6), None)
+    
+    # If found, add object points, image points (after refining them)
+    if ret == True:
+        objpoints.append(objp)
+ 
+        corners2 = cv.cornerSubPix(gray,corners, (11,11), (-1,-1), criteria)
+        imgpoints.append(corners2)
+ 
+cv.destroyAllWindows()
+
+print(objpoints)
+print(imgpoints)
+#ret, mtx, dist, rvecs, tvecs = cv.calibrateCamera(objpoints, imgpoints, gray.shape[::-1], None, None)'''
