@@ -1,28 +1,9 @@
 import os
 
 os.environ["OPENCV_LOG_LEVEL"] = "E"
-import cv2
 import numpy as np
 
-
-def get_camera(
-    capture_width: int = 1024, capture_height: int = 720, framerate: int = 30
-) -> cv2.VideoCapture:
-    """Utility function for getting a camera setup"""
-    return cv2.VideoCapture(
-        (
-            "libcamerasrc !"
-            "videobox autocrop=true !"
-            "video/x-raw, "
-            f"width=(int){capture_width}, "
-            f"height=(int){capture_height}, "
-            f"framerate=(fraction){framerate}/1 ! "
-            "videoconvert ! "
-            "appsink"
-        ),
-        apiPreference=cv2.CAP_GSTREAMER,
-    )
-
+from aruco_utils import get_camera_picamera
 
 # Define some constants
 low_threshold = 35
@@ -34,17 +15,15 @@ kernel_size = 3
 
 
 def photo(name: str):
-    cam = get_camera()
-    assert cam.isOpened(), "Could not open camera"
-    retval, image = cam.read()
-    assert retval, "Failed to read image"
+    cam = get_camera_picamera()
+    image = cam.capture_buffer()
     np.save(f"data/photo_{name}.npy", image)
-    cam.release()
+    cam.close()
 
 
 try:
     while True:
         dist = int(input("Current distance: "))
-        photo(f"calibrate_{dist}")
+        photo(f"focal_{dist}")
 except KeyboardInterrupt:
     pass

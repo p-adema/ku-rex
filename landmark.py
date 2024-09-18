@@ -9,17 +9,14 @@ def try_see(image):
     corners, ids = aruco_utils.detect_markers(image)
     if ids is not None:
         # print(len(ids), "markers detected", end=" ")
-        try:
-            r_vec, t_vec = aruco_utils.estimate_pose(corners[0])
-            # total_dist = np.sqrt(np.square(t_vec).sum())
-            # print(f"estimated distance: {total_dist:.0f}mm")
-            print(
-                str(np.round(r_vec.flatten(), 3)).ljust(40),
-                np.round(t_vec.flatten() / 10),
-                aruco_utils.calc_turn_angle(t_vec),
-            )
-        except aruco_utils.MarkerNotFound:
-            print("Failed to estimate pose!")
+        r_vec, t_vec = aruco_utils.estimate_pose(corners[0])
+        # total_dist = np.sqrt(np.square(t_vec).sum())
+        # print(f"estimated distance: {total_dist:.0f}mm")
+        print(
+            str(np.round(r_vec.flatten(), 3)).ljust(40),
+            np.round(t_vec.flatten() / 10),
+            aruco_utils.calc_turn_angle(t_vec),
+        )
     else:
         print("Can't see marker.")
 

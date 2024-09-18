@@ -1,36 +1,50 @@
 from __future__ import annotations
 
-import matplotlib.pyplot as plt
+import socket
+import struct
+
 import numpy as np
 
 import aruco_utils
 
 cam = aruco_utils.get_camera_picamera(downscale=1)
+s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+s.connect(("192.168.128.213", 1807))
+s.send(b"Hello")
 
 
 def sample_markers(
     pixel_stride: int = 1,
-) -> dict[int, tuple[np.ndarray, np.ndarray]]:
+) -> list[tuple[int, np.ndarray, np.ndarray]]:
     img = cam.capture_array()[::pixel_stride, ::pixel_stride]
     corners, ids = aruco_utils.detect_markers(img)
-    res = {}
+    res = []
     if ids is not None:
         for cn, i in zip(corners, ids):
-            res[i[0]] = aruco_utils.estimate_pose(cn)
-
+            r_vec, t_vec = aruco_utils.estimate_pose(cn)
+            res.append((int(i[0]), r_vec, t_vec))
     return res
 
 
-ax = plt.gca()
+try:
+    msg = []
 
-while True:
-    markers = sample_markers()
-    print(markers)
-    for name, (_, t_vec) in markers.items():
-        plt.scatter(t_vec[0], t_vec[2], label=name)
-    break
+    while True:
+        markers = sample_markers()
+        if not markers:
+            continue
 
-plt.show()
+        for name, _, t_vec in markers:
+            msg.append(struct.pack("<Bdd", name, t_vec[0, 0], t_vec[2, 0]))
+        send = b"".join(msg)
+        s.send(send)
+        msg.clear()
+
+except KeyboardInterrupt:
+    pass
+finally:
+    s.send(b"!close")
+    s.close()
 # left: -3 -0.02, -0.001
 # right: 3, 0.05, -0.01
 

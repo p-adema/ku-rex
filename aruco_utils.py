@@ -3,7 +3,7 @@ import numpy as np
 import picamera2
 
 marker_size_mm = 144
-avg_focal = 1105.6
+avg_focal = 1727.9
 
 arucoDict = cv2.aruco.getPredefinedDictionary(cv2.aruco.DICT_6X6_250)
 arucoParams = cv2.aruco.DetectorParameters()
@@ -16,6 +16,7 @@ _cam_internal = np.array(
         [0, 0, 1],
     ]
 )
+
 _object_points = np.array(
     [
         [-marker_size_mm / 2, marker_size_mm / 2, 0],
