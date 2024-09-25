@@ -190,7 +190,7 @@ def main():
 
     path_res = 0.05
     map = grid_occ.GridOccupancyMap(low=(-1, 0), high=(1, 2), res=path_res)
-    map.add_objects([(10,10), (5,5), (2,2)], [20,40], 2)
+    map.populate()
 
     robot = robot_models.PointMassModel(ctrl_range=[-path_res, path_res])   #
 
