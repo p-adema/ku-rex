@@ -13,25 +13,8 @@ import numpy as np
 import numpy.random
 from matplotlib.animation import FFMpegWriter
 
-from box_types import Box
-
-
-class Node:
-    """
-    RRT Node
-    """
-
-    def __init__(self, pos: np.ndarray):
-        self.pos = pos  # configuration position, usually 2D/3D for planar robots
-        self.path = []  # the path with an integration horizon.
-        # This could be just a straight line for holonomic system
-        self.parent: Node | None = None
-
-    def distance_to(self, other: Node):
-        # node distance can be nontrivial as some form of cost-to-go function
-        # for e.g. underactuated system
-        # use Euclidean norm for basic holonomic point mass or as heuristics
-        return np.linalg.norm(other.pos - self.pos)
+from box_types import Box, Node
+from map_implementation import DrawExtent, LandmarkMap
 
 
 class RRT:
@@ -43,32 +26,31 @@ class RRT:
         self,
         start: Node,
         goal: Node,
-        robot_model,
-        landmarks: list[Box],
-        expand_dis: int = 0.2,
-        path_resolution: int = 0.05,
-        goal_sample_rate: int = 5,
+        landmarks: LandmarkMap,
+        expand_dis: float = 0.2,
+        goal_sample_rate: float = 0.05,
         max_iter: int = 500,
-        min_rand: int = -5_000,
-        max_rand: int = +5_000,
+        min_rand: float = -5_000.0,
+        max_rand: float = +5_000.0,
+        smoothing: bool = True,
     ):
         self.start = start
         self.end = goal
-        self.robot = robot_model
         self.landmarks = landmarks
 
         self.min_rand = min_rand
         self.max_rand = max_rand
 
-        self.expand_dis = expand_dis
-        self.path_resolution = path_resolution
+        self.extend_length = expand_dis
         self.goal_sample_rate = goal_sample_rate
         self.max_iter = max_iter
+        self.smoothing = smoothing
         self._rng = np.random.default_rng()
 
-        self.node_list = []
+        self.node_list: list[Node] = []
+        self.pos_array: np.array = np.repeat(start.pos.reshape((1, 2)), 500, axis=0)
 
-    def planning(self, animation=True, writer=None):
+    def planning(self, animation=True, writer=None) -> np.ndarray | None:
         """
         rrt path planning
 
@@ -77,21 +59,21 @@ class RRT:
 
         self.node_list = [self.start]
 
-        for i in range(self.max_iter):
+        for _ in range(self.max_iter):
             rng_node = self.get_random_node()
-            nearest_ind = self.get_nearest_node_index(self.node_list, rng_node)
+            nearest_ind = self.get_nearest_node_index(rng_node)
             nearest_node = self.node_list[nearest_ind]
 
-            new_node = self.steer(nearest_node, rng_node, self.expand_dis)
+            new_node = self.steer(nearest_node, rng_node)
 
             if self.check_collision_free(new_node):
+                self.pos_array[len(self.node_list)] = new_node.pos
                 self.node_list.append(new_node)
 
-            # try to steer towards the goal if we are already close enough
-            if self.node_list[-1].distance_to(self.end) <= self.expand_dis:
-                final_node = self.steer(self.node_list[-1], self.end, self.expand_dis)
-                if self.check_collision_free(final_node):
-                    return self.generate_final_course(len(self.node_list) - 1)
+                if new_node.distance_to(self.end) <= self.extend_length:
+                    goal_node = self.steer(new_node, self.end)
+                    if self.check_collision_free(goal_node):
+                        return self.generate_final_course(goal_node)
 
             if animation:
                 self.draw_graph(rng_node)
@@ -100,59 +82,59 @@ class RRT:
 
         return None  # cannot find path
 
-    def steer(self, from_node, to_node, extend_length=float("inf")):
-        # integrate the robot dynamics towards the sampled position
-        # for holonomic point pass robot, this could be straight forward as a straight line in Euclidean space
-        # while need some local optimization to find the dynamically closest path otherwise
-        new_node = self.Node(from_node.pos)
-        d = new_node.distance_to(to_node)
+    def steer(self, from_node: Node, to_node: Node) -> Node:
+        d = from_node.distance_to(to_node)
 
-        new_node.path = [new_node.pos]
+        if d <= self.extend_length:
+            pos = to_node.pos
+        else:
+            direction = to_node.pos - from_node.pos
+            direction /= np.linalg.norm(direction)
+            pos = from_node.pos + direction * self.extend_length
 
-        if extend_length > d:
-            extend_length = d
+        return Node(pos=pos, parent=from_node)
 
-        n_expand = int(extend_length // self.path_resolution)
+    def generate_final_course(self, last_step_node: Node) -> np.ndarray:
+        if self.smoothing:
+            self.smooth_path(last_step_node)
 
-        if n_expand > 0:
-            steer_path = self.robot.inverse_dyn(new_node.pos, to_node.pos, n_expand)
-            # use the end position to represent the current node and update the path
-            new_node.pos = steer_path[-1]
-            new_node.path += steer_path
-
-        d = new_node.distance_to(to_node)
-        if d <= self.path_resolution:
-            # this is considered as connectable
-            new_node.path.append(to_node.pos)
-
-            # so this position becomes the representation of this node
-            new_node.pos = to_node.pos.copy()
-
-        new_node.parent = from_node
-
-        return new_node
-
-    def generate_final_course(self, goal_ind):
         path = [self.end.pos]
-        node = self.node_list[goal_ind]
+        node = last_step_node
         while node.parent is not None:
             path.append(node.pos)
             node = node.parent
         path.append(node.pos)
+        return np.array(path)
 
-        return path
+    def smooth_path(self, last_step_node: Node) -> None:
+        if last_step_node.parent is None or last_step_node.parent.parent is None:
+            return
 
-    def get_random_node(self):
-        if np.random.randint(0, 100) > self.goal_sample_rate:
-            rng = self.Node(
-                np.random.uniform(self.map.map_area[0], self.map.map_area[1])
-            )
-        else:  # goal point sampling
-            rng = self.Node(self.end.pos)
-        return rng
+        could_smooth = True
+        print(f"{len(self.node_list)=}")
+        i = 0
+        while could_smooth:
+            could_smooth = False
+            node = last_step_node
+            grandparent = last_step_node.parent.parent
+            while grandparent is not None:
+                i += 1
+                # print(f"Comparing, step {i}")
+                if not self.landmarks.in_collision(node, grandparent):
+                    node.parent = grandparent
+                    could_smooth = True
+                else:
+                    node = node.parent
 
-    def draw_graph(self, rnd=None):
-        # plt.clf()
+                grandparent = node.parent.parent
+
+    def get_random_node(self) -> Node:
+        if self._rng.random() < self.goal_sample_rate:
+            return Node(self._rng.normal(loc=self.end.pos, scale=[500, 500], size=(2,)))
+        else:
+            return Node(self._rng.uniform(self.min_rand, self.max_rand, size=(2,)))
+
+    def draw_graph(self, rnd=None) -> None:
         # # for stopping simulation with the esc key.
         # plt.gcf().canvas.mpl_connect(
         #     'key_release_event',
@@ -161,54 +143,45 @@ class RRT:
         if rnd is not None:
             plt.plot(rnd.pos[0], rnd.pos[1], "^k")
 
-        # draw the map
-        self.map.draw_map()
+        ax = plt.gca()
+        self.landmarks.draw_map(ax)
 
-        for node in self.node_list:
-            if node.parent:
-                path = np.array(node.path)
-                plt.plot(path[:, 0], path[:, 1], "-g")
+        for node in self.node_list[1:]:
+            ax.plot(
+                (node.pos[0], node.parent.pos[0]),
+                (node.pos[1], node.parent.pos[1]),
+                "-g",
+            )
 
-        plt.plot(self.start.pos[0], self.start.pos[1], "xr")
-        plt.plot(self.end.pos[0], self.end.pos[1], "xr")
-        plt.axis(self.map.extent)
-        plt.grid(True)
+        ax.plot(self.start.pos[0], self.start.pos[1], "xr")
+        ax.plot(self.end.pos[0], self.end.pos[1], "xr")
         plt.pause(0.01)
 
-    @staticmethod
-    def get_nearest_node_index(node_list, rnd_node):
-        dlist = [node.distance_to(rnd_node) for node in node_list]
-        minind = dlist.index(min(dlist))
+    def get_nearest_node_index(self, rng_node: Node):
+        return np.linalg.norm(
+            self.pos_array - rng_node.pos.reshape((1, 2)), axis=1
+        ).argmin()
 
-        return minind
-
-    def check_collision_free(self, node):
-        if node is None:
-            return False
-        for p in node.path:
-            if self.map.in_collision(np.array(p)):
-                return False
-        return True
-
-
-import grid_occ
-import robot_models
+    def check_collision_free(self, node: Node):
+        return not self.landmarks.in_collision(node, node.parent)
 
 
 def main():
-    path_res = 0.05
-    map = grid_occ.GridOccupancyMap(low=(-1, 0), high=(1, 2), res=path_res)
-    map.populate()
-
-    robot = robot_models.PointMassModel(ctrl_range=[-path_res, path_res])  #
+    landmarks = LandmarkMap(
+        [
+            Box(id=1, x=1_000, y=1_000),
+            Box(id=2, x=0, y=1_000),
+            Box(id=3, x=100, y=1_400),
+        ],
+        draw_extent=DrawExtent(),
+    )
 
     rrt = RRT(
-        start=[0, 0],
-        goal=[0, 1.9],
-        robot_model=robot,
-        map=map,
-        expand_dis=0.2,
-        path_resolution=path_res,
+        start=Node(np.array([0.0, 0.0])),
+        goal=Node(np.array([0.0, 2_000.0])),
+        landmarks=landmarks,
+        expand_dis=300,
+        goal_sample_rate=0.3,
     )
 
     show_animation = True

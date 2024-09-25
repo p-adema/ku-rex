@@ -1,3 +1,6 @@
+from __future__ import annotations
+
+import dataclasses
 import struct
 import time
 from typing import NamedTuple
@@ -13,6 +16,7 @@ class CameraBox(NamedTuple):
 
 _box_fmt = "<Bdd"
 BOX_SIZE = 200
+BOX_SIZE_MARGIN = BOX_SIZE + 150
 
 
 class Box(NamedTuple):
@@ -69,3 +73,19 @@ class MovementAction(NamedTuple):
     @classmethod
     def stop(cls):
         return cls(0, timestamp=time.time(), confident=True)
+
+
+@dataclasses.dataclass
+class Node:
+    """
+    RRT Node
+    """
+
+    pos: np.ndarray
+    parent: Node | None = None
+
+    def distance_to(self, other: Node):
+        # node distance can be nontrivial as some form of cost-to-go function
+        # for e.g. underactuated system
+        # use Euclidean norm for basic holonomic point mass or as heuristics
+        return np.linalg.norm(other.pos - self.pos)
