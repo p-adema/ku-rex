@@ -1,16 +1,8 @@
 import time
-from typing import NamedTuple
 
 import numpy as np
 
-
-class Box(NamedTuple):
-    id: int  # As shown on the box itself
-    x: float  # Horizontal displacement w.r.t. the camera, right is positive
-    y: float  # Depth displacement w.r.t. the camera, in front is positive
-
-    def __repr__(self):
-        return f"Box({self.id}, {self.x:.0f}, {self.y:.0f})"
+from box_types import Box
 
 
 class KalmanState:

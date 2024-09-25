@@ -1,9 +1,7 @@
 import socket
-import struct
 from typing import NamedTuple
 
 import matplotlib.pyplot as plt
-import numpy as np
 from matplotlib.patches import Circle
 
 from kalman_state import Box, KalmanState
@@ -26,8 +24,8 @@ def axes_base(ax_live: plt.Axes, ax_state: plt.Axes):
 
 
 class Observation(NamedTuple):
-    is_moving: bool
-    boxes: list[Box]
+    cam: list[Box]
+    state: list[Box]
     visible: set[int]
 
 
@@ -40,25 +38,17 @@ def parse_msg(msg: bytes) -> tuple[bool, list[Observation]]:
     updates = []
 
     for update in msg.split(b"!end"):
+        update = update.rstrip(b"!empty")
         if not update:
             continue
-        update = update.rstrip(b"!empty")
-        is_moving = update[-1] == b"m"
 
-        visible = set()
-        boxes_dup: dict[int, list[tuple[float, float]]] = {}
-        for i in range(len(update) // 17):
-            name, x, y = struct.unpack("<Bdd", update[17 * i : 17 * (i + 1)])
-            boxes_dup.setdefault(name, []).append((x, y))
-            visible.add(name)
+        cam_b, state_b = update.split(b"!state")
 
-        boxes = []
-        for name, coords in boxes_dup.items():
-            x, y = np.array(coords).mean(0).astype(int)
-            y += 200 // len(coords)
-            boxes.append(Box(name, x, y))
+        cam = Box.unpack_multi(cam_b)
+        state = Box.unpack_multi(state_b)
+        visible = {box.id for box in cam}
 
-        updates.append(Observation(is_moving, boxes, visible))
+        updates.append(Observation(cam, state, visible))
 
     return closed, updates
 
@@ -76,15 +66,15 @@ def handle_robot(client: socket.socket):
         msg = client.recv(2048)
         closed, updates = parse_msg(msg)
 
-        for update in updates:
-            axes_base(ax_live, ax_state)
-            axes_live(ax_live, update)
-
-            state.update_camera(update.boxes)
-
+        for obs in updates:
+            state.update_camera(obs.boxes)
             s_speed, s_boxes = state.state()
-            print(f"Going {s_speed} mm/s ({update.is_moving=})")
-            axes_state(ax_state, s_boxes, update)
+            assert s_boxes == obs.state, "State divergence!"
+
+            print(f"Going {s_speed} mm/s")
+            axes_base(ax_live, ax_state)
+            axes_live(ax_live, obs)
+            axes_state(ax_state, obs)
             plt.pause(0.01)
 
     plt.ioff()
@@ -92,8 +82,14 @@ def handle_robot(client: socket.socket):
     plt.pause(0.01)
 
 
-def axes_state(ax_state, s_boxes, update):
-    for box in s_boxes:
+def axes_live(ax_live: plt.Axes, update: Observation):
+    for box in update.cam:
+        ax_live.add_artist(Circle((box.x, box.y), 200, fill=False, color="green"))
+        ax_live.text(box.x - 70, box.y - 70, str(box.id), ma="center")
+
+
+def axes_state(ax_state: plt.Axes, update: Observation):
+    for box in update.state:
         ax_state.add_artist(
             Circle(
                 (box.x, box.y),
@@ -102,14 +98,7 @@ def axes_state(ax_state, s_boxes, update):
                 color="green" if box.id in update.visible else "red",
             )
         )
-        ax_state: plt.Axes
         ax_state.text(box.x - 70, box.y - 70, str(box.id), ma="center", s=10)
-
-
-def axes_live(ax_live: plt.Axes, update):
-    for box in update.boxes:
-        ax_live.add_artist(Circle((box.x, box.y), 200, fill=False, color="green"))
-        ax_live.text(box.x - 70, box.y - 70, str(box.id), ma="center")
 
 
 def main():
