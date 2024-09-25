@@ -4,7 +4,7 @@ from typing import NamedTuple
 import matplotlib.pyplot as plt
 from matplotlib.patches import Circle
 
-from aruco_utils import server_ip, server_port
+from constants import server_ip, server_port
 from kalman_state import Box, KalmanState
 
 
@@ -64,11 +64,12 @@ def handle_robot(client: socket.socket):
     state = KalmanState(n_boxes=4)
 
     while not closed:
-        msg = client.recv(2048)
+        msg = client.recv(4096)
         closed, updates = parse_msg(msg)
+        plt.pause(0.01)
 
         for obs in updates:
-            state.update_camera(obs.boxes)
+            state.update_camera(obs.cam, force_duration=0.2)
             est = state.state()
             # assert est.boxes == obs.state, "State divergence!"
 
@@ -99,7 +100,7 @@ def axes_state(ax_state: plt.Axes, update: Observation):
                 color="green" if box.id in update.visible else "red",
             )
         )
-        ax_state.text(box.x - 70, box.y - 70, str(box.id), ma="center", s=10)
+        ax_state.text(box.x - 70, box.y - 70, str(box.id), ma="center")
 
 
 def main():
@@ -113,6 +114,8 @@ def main():
             handle_robot(s)
     except KeyboardInterrupt:
         print("Shutting down...")
+    except ConnectionError as e:
+        print(f"Connection failed: {e}")
     finally:
         server.close()
 

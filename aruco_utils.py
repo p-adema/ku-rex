@@ -5,12 +5,7 @@ import numpy as np
 import picamera2
 
 from box_types import CameraBox
-
-marker_size_mm = 144
-avg_focal = 1727.9
-
-server_ip = "192.168.103.213"
-server_port = 1808
+from constants import avg_focal, marker_size_mm
 
 arucoDict = cv2.aruco.getPredefinedDictionary(cv2.aruco.DICT_6X6_250)
 arucoParams = cv2.aruco.DetectorParameters()

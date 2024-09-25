@@ -1,55 +1,61 @@
+import threading
 import time
-from typing import NamedTuple
+from typing import Iterable
 
 import numpy as np
 
-from box_types import Box
-
-
-class StateEstimate(NamedTuple):
-    speed: float
-    boxes: list[Box]
+from box_types import Box, MovementAction, StateEstimate
 
 
 class KalmanState:
     def __init__(self, n_boxes: int = 4):
         self._n_boxes = n_boxes
         self._f_mat = np.identity(1 + n_boxes * 2)
-        self._sigma_x = np.diag([100] + [0.1, 0.1] * n_boxes)
+        self._sigma_x = np.diag([50] + [0.1, 0.1] * n_boxes)
         self._u_t = np.zeros((1 + n_boxes * 2,))
         self._sigma_t = np.diag([10] + [1_000_000, 1_000_000] * n_boxes)
         self._h_mat = np.hstack((np.zeros((2 * n_boxes, 1)), np.identity(2 * n_boxes)))
         self._sigma_z = np.diag(np.repeat(20, n_boxes * 2))
         self._state_identity = np.eye(1 + self._n_boxes * 2)
-        self._last_t = None
+        self._timestamp = time.time()
+        self._lock = threading.Lock()
+        print(f"Init state: {self._timestamp=}")
 
-    def update_camera(self, boxes: list[Box], force_duration=None):
+    def update_camera(
+        self, boxes: list[Box], timestamp: float = None, force_duration=None
+    ):
+        assert isinstance(boxes, Iterable) and isinstance(boxes[0], Box), "Type error"
         assert len(set(b.id for b in boxes)) == len(boxes), f"Duplicate: {boxes}"
         assert max(b.id for b in boxes) <= self._n_boxes, f"High ID: {boxes}"
         assert min(b.id for b in boxes) > 0, f"Low ID: {boxes}"
         assert max(max(abs(b.x), abs(b.y)) for b in boxes) < 10_000, f"OOB: {boxes}"
+        assert (timestamp is None) + (force_duration is None) == 1, "Time must be given"
 
-        measurement = np.zeros((self._n_boxes * 2,))
-        update_mask = np.zeros((self._n_boxes * 2,))
+        with self._lock:
+            measurement = np.zeros((self._n_boxes * 2,))
+            update_mask = np.zeros((self._n_boxes * 2,))
 
-        for box in boxes:
-            measurement[(box.id - 1) * 2 : box.id * 2] = box.x, box.y
-            update_mask[(box.id - 1) * 2 : box.id * 2] = 1
-        np.fill_diagonal(self._h_mat[:, 1:], update_mask)
+            for box in boxes:
+                measurement[(box.id - 1) * 2 : box.id * 2] = box.x, box.y
+                update_mask[(box.id - 1) * 2 : box.id * 2] = 1
+            np.fill_diagonal(self._h_mat[:, 1:], update_mask)
 
-        if self._last_t is not None and force_duration is None:
-            duration = time.perf_counter() - self._last_t
-        else:
-            duration = force_duration or 0.5
+            if timestamp is not None:
+                duration = timestamp - self._timestamp
+                assert 0 < duration <= 5, f"Long duration! {timestamp=} {self._timestamp=}"
+                self._timestamp = timestamp
+            else:
+                duration = force_duration
+                self._timestamp += force_duration
 
-        self._update_camera(measurement, duration)
+            self._update_camera(measurement, duration)
 
-    def _update_camera(self, measurement: np.ndarray, duration_sec: float):
-        assert measurement.shape == (self._n_boxes * 2,)
-        assert 0 < duration_sec < 5
+    def _update_camera(self, measurement: np.ndarray, duration: float):
+        assert measurement.shape == (self._n_boxes * 2,), "Wrong measurement shape!"
+        assert 0 < duration < 5, f"Very long duration! ({duration:.2f})"
 
-        self._f_mat[1:, 0] = np.tile([0, -duration_sec], self._n_boxes)
-        sigma_x = self._sigma_x * duration_sec
+        self._f_mat[1:, 0] = np.tile([0, -duration], self._n_boxes)
+        sigma_x = self._sigma_x * duration
 
         pred_sig = self._f_mat @ self._sigma_t @ self._f_mat.T + sigma_x
         pred_half_update = pred_sig @ self._h_mat.T
@@ -61,31 +67,52 @@ class KalmanState:
 
         self._u_t = pred_u + gain @ (measurement - self._h_mat @ pred_u)
         self._sigma_t = (self._state_identity - gain @ self._h_mat) @ pred_sig
-        self._last_t = time.perf_counter()
+
+    def _advance(self, timestamp: float):
+        assert timestamp > self._timestamp, "Timestamp has already passed!"
+        duration = timestamp - self._timestamp
+
+        self._timestamp = timestamp
+        self._f_mat[1:, 0] = np.tile([0, -duration], self._n_boxes)
+        sigma_x = self._sigma_x * duration
+
+        self._u_t = self._f_mat @ self._u_t
+        self._sigma_t = self._f_mat @ self._sigma_t @ self._f_mat.T + sigma_x
+
+    def update_movement(self, move: MovementAction, advance=True):
+        assert move.timestamp - self._timestamp > -0.01, "Out of order move update!"
+        with self._lock:
+            if advance and move.timestamp > self._timestamp:
+                self._advance(move.timestamp)
+
+            self._u_t[0] = move.speed
+            self._sigma_t[0, 0] = 10 if move.confident else 200
 
     def state(self, permissible_variance: float = 200.0) -> StateEstimate:
-        boxes = []
-        var_diag = np.diag(self._sigma_t)
-        for box in range(self._n_boxes):
-            if var_diag[1 + box * 2 : 3 + box * 2].max() < permissible_variance:
-                boxes.append(Box(box + 1, *self._u_t[1 + box * 2 : 3 + box * 2]))
+        with self._lock:
+            boxes = []
+            var_diag = np.diag(self._sigma_t)
+            for box in range(self._n_boxes):
+                if var_diag[1 + box * 2 : 3 + box * 2].max() < permissible_variance:
+                    boxes.append(Box(box + 1, *self._u_t[1 + box * 2 : 3 + box * 2]))
 
-        return StateEstimate(int(self._u_t[0]), boxes)
+            return StateEstimate(int(self._u_t[0]), boxes)
 
     def debug_print(self):
-        diag = [
-            num if num < 10_000 else "high"
-            for num in np.round(np.diag(self._sigma_t)).astype(int)
-        ]
-        print(
-            f"think I'm moving with speed {self._u_t[0]: <6.1f}±{diag[0]: >4}, seeing",
-            " and ".join(
-                f"{box+1}"
-                f"({self._u_t[1 + box * 2]: <5.0f}±{diag[1 + box * 2]: >4},"
-                f" {self._u_t[2 + box * 2]: <5.0f}±{diag[2 + box * 2]: >4})"
-                for box in range(self._n_boxes)
-            ),
-        )
+        with self._lock:
+            diag = [
+                num if num < 10_000 else "high"
+                for num in np.round(np.diag(self._sigma_t)).astype(int)
+            ]
+            print(
+                f"think I'm moving with speed {self._u_t[0]: <6.1f}±{diag[0]: >4}, seeing",
+                " and ".join(
+                    f"{box+1}"
+                    f"({self._u_t[1 + box * 2]: <5.0f}±{diag[1 + box * 2]: >4},"
+                    f" {self._u_t[2 + box * 2]: <5.0f}±{diag[2 + box * 2]: >4})"
+                    for box in range(self._n_boxes)
+                ),
+            )
 
 
 def main_test():

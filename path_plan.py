@@ -15,21 +15,18 @@ from kalman_state import KalmanState
 
 movement_actions: queue.SimpleQueue[MovementAction] = queue.SimpleQueue()
 is_running = True
+state = KalmanState()
 
 
 def state_thread():
-    global movement_actions, is_running
+    global movement_actions, is_running, state
     cam = aruco_utils.get_camera_picamera(downscale=1)
     s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
 
     try:
         s.connect((server_ip, server_port))
         msg = []
-        state = KalmanState()
-
         while is_running:
-            print(f"{state.state()}")
-
             img = cam.capture_array()[::1, ::1]
             timestamp = time.time()
             with contextlib.suppress(queue.Empty):
@@ -48,6 +45,7 @@ def state_thread():
                     e.args = (e.args[0] + f" ({markers=})",) + e.args[1:]
                 else:
                     e.args = (f"No args AssertionError ({markers=})",)
+                is_running = False
                 raise
 
             for box in boxes:
@@ -65,6 +63,7 @@ def state_thread():
         s.send(b"!close")
     except ConnectionError as e:
         print(f"Connection error: {e}")
+        is_running = False
     finally:
         s.close()
 

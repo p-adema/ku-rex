@@ -1,4 +1,5 @@
 import struct
+import time
 from typing import NamedTuple
 
 import numpy as np
@@ -11,6 +12,7 @@ class CameraBox(NamedTuple):
 
 
 _box_fmt = "<Bdd"
+BOX_SIZE = 200
 
 
 class Box(NamedTuple):
@@ -48,3 +50,22 @@ def dedup_camera(observed: list[CameraBox]) -> list[Box]:
         boxes.append(Box(name, x, y))
 
     return boxes
+
+
+class StateEstimate(NamedTuple):
+    speed: float
+    boxes: list[Box]
+
+
+class MovementAction(NamedTuple):
+    speed: float
+    timestamp: float
+    confident: bool
+
+    @classmethod
+    def moving(cls, speed: float, confident: bool = False):
+        return cls(speed, timestamp=time.time(), confident=confident)
+
+    @classmethod
+    def stop(cls):
+        return cls(0, timestamp=time.time(), confident=True)
