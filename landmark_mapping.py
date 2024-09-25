@@ -1,48 +1,34 @@
 from __future__ import annotations
 
 import socket
-import struct
 import threading
 
 import aruco_utils
 import robot
-from box_types import CameraBox, dedup_camera
+from aruco_utils import sample_markers, server_ip, server_port
+from box_types import dedup_camera
 from kalman_state import KalmanState
 
 is_moving = False
-running = True
-
-
-def sample_markers(
-    cam,
-    pixel_stride: int = 1,
-) -> list[CameraBox]:
-    img = cam.capture_array()[::pixel_stride, ::pixel_stride]
-    corners, ids = aruco_utils.detect_markers(img)
-    res = []
-    if ids is not None:
-        for cn, i in zip(corners, ids):
-            r_vec, t_vec = aruco_utils.estimate_pose(cn)
-            res.append(CameraBox(id=int(i[0]), r_vec=r_vec, t_vec=t_vec))
-
-    return res
+is_running = True
 
 
 def state_thread():
-    global is_moving, running
+    global is_moving, is_running
     cam = aruco_utils.get_camera_picamera(downscale=1)
     s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
 
     try:
-        s.connect(("192.168.103.213", 1808))
+        s.connect((server_ip, server_port))
         msg = []
         state = KalmanState()
 
-        while running:
-            print(is_moving)
-            markers = sample_markers(cam)
+        while is_running:
+            print(f"{is_moving=}")
+            img = cam.capture_array()[::1, ::1]
+            markers = sample_markers(img)
             if not markers:
-                s.send((b"m" if is_moving else b"s") + b"!empty")
+                s.send(b"!empty!end")
                 continue
 
             boxes = dedup_camera(markers)
@@ -51,9 +37,9 @@ def state_thread():
             for box in boxes:
                 msg.append(box.pack())
 
-            msg.append(b'!state')
+            msg.append(b"!state")
 
-            for s_box in state.state()[1]:
+            for s_box in state.state().boxes:
                 msg.append(s_box.pack())
 
             msg.append(b"!end")
@@ -67,8 +53,8 @@ def state_thread():
         s.close()
 
 
-def main():
-    global is_moving, running
+def main_thread():
+    global is_moving, is_running
     t = threading.Thread(target=state_thread, args=[])
     t.start()
     arlo = robot.Robot()
@@ -79,11 +65,11 @@ def main():
     arlo.stop()
     is_moving = False
     input("Press enter to exit.")
-    running = False
+    is_running = False
 
 
 if __name__ == "__main__":
-    main()
+    main_thread()
 
 # left: -3 -0.02, -0.001
 # right: 3, 0.05, -0.01

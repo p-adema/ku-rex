@@ -1,8 +1,14 @@
 import time
+from typing import NamedTuple
 
 import numpy as np
 
 from box_types import Box
+
+
+class StateEstimate(NamedTuple):
+    speed: float
+    boxes: list[Box]
 
 
 class KalmanState:
@@ -57,14 +63,14 @@ class KalmanState:
         self._sigma_t = (self._state_identity - gain @ self._h_mat) @ pred_sig
         self._last_t = time.perf_counter()
 
-    def state(self, permissible_variance: float = 200.0) -> tuple[int, list[Box]]:
+    def state(self, permissible_variance: float = 200.0) -> StateEstimate:
         boxes = []
         var_diag = np.diag(self._sigma_t)
         for box in range(self._n_boxes):
             if var_diag[1 + box * 2 : 3 + box * 2].max() < permissible_variance:
                 boxes.append(Box(box + 1, *self._u_t[1 + box * 2 : 3 + box * 2]))
 
-        return int(self._u_t[0]), boxes
+        return StateEstimate(int(self._u_t[0]), boxes)
 
     def debug_print(self):
         diag = [

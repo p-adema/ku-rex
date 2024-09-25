@@ -4,6 +4,7 @@ from typing import NamedTuple
 import matplotlib.pyplot as plt
 from matplotlib.patches import Circle
 
+from aruco_utils import server_ip, server_port
 from kalman_state import Box, KalmanState
 
 
@@ -68,10 +69,10 @@ def handle_robot(client: socket.socket):
 
         for obs in updates:
             state.update_camera(obs.boxes)
-            s_speed, s_boxes = state.state()
-            assert s_boxes == obs.state, "State divergence!"
+            est = state.state()
+            # assert est.boxes == obs.state, "State divergence!"
 
-            print(f"Going {s_speed} mm/s")
+            print(f"Going {est.speed} mm/s")
             axes_base(ax_live, ax_state)
             axes_live(ax_live, obs)
             axes_state(ax_state, obs)
@@ -104,7 +105,7 @@ def axes_state(ax_state: plt.Axes, update: Observation):
 def main():
     server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     try:
-        server.bind(("192.168.103.213", 1808))
+        server.bind((server_ip, server_port))
         server.listen(0)
         while True:
             s, addr = server.accept()

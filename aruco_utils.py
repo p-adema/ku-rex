@@ -1,9 +1,16 @@
+from __future__ import annotations
+
 import cv2
 import numpy as np
 import picamera2
 
+from box_types import CameraBox
+
 marker_size_mm = 144
 avg_focal = 1727.9
+
+server_ip = "192.168.103.213"
+server_port = 1808
 
 arucoDict = cv2.aruco.getPredefinedDictionary(cv2.aruco.DICT_6X6_250)
 arucoParams = cv2.aruco.DetectorParameters()
@@ -68,7 +75,9 @@ def get_camera_cv(
     return cam
 
 
-def get_camera_picamera(fps: int = 30, image_size=(1280, 720), downscale: int = 1):
+def get_camera_picamera(
+    fps: int = 30, image_size=(1280, 720), downscale: int = 1
+) -> picamera2.Picamera2:
     cam = picamera2.Picamera2()
     frame_duration_limit = int(1 / fps * 1000000)  # Microseconds
     image_size = image_size[0] // downscale, image_size[1] // downscale
@@ -96,3 +105,16 @@ def calc_euler_angles(r_vec: np.ndarray) -> tuple[float, float, float]:
 
 def calc_turn_angle(t_vec: np.ndarray) -> float:
     return np.sign(t_vec[0]) * np.arcsin(abs(t_vec[0]) / t_vec[2]) / 0.44
+
+
+def sample_markers(
+    img: np.ndarray,
+) -> list[CameraBox]:
+    corners, ids = detect_markers(img)
+    res = []
+    if ids is not None:
+        for cn, i in zip(corners, ids):
+            r_vec, t_vec = estimate_pose(cn)
+            res.append(CameraBox(id=int(i[0]), r_vec=r_vec, t_vec=t_vec))
+
+    return res
