@@ -8,6 +8,8 @@ https://github.com/AtsushiSakai/PythonRobotics/blob/master/PathPlanning/RRT/rrt.
 
 from __future__ import annotations
 
+import timeit
+
 import matplotlib.pyplot as plt
 import numpy as np
 import numpy.random
@@ -27,8 +29,8 @@ class RRT:
         start: Node,
         goal: Node,
         landmarks: LandmarkMap,
-        expand_dis: float = 0.2,
-        goal_sample_rate: float = 0.05,
+        expand_dis: float = 300.0,
+        goal_sample_rate: float = 0.3,
         max_iter: int = 500,
         min_rand: float = -5_000.0,
         max_rand: float = +5_000.0,
@@ -50,7 +52,7 @@ class RRT:
         self.node_list: list[Node] = []
         self.pos_array: np.array = np.repeat(start.pos.reshape((1, 2)), 500, axis=0)
 
-    def planning(self, animation=True, writer=None) -> np.ndarray | None:
+    def plan(self, animation=False, writer=None) -> np.ndarray | None:
         """
         rrt path planning
 
@@ -94,32 +96,28 @@ class RRT:
 
         return Node(pos=pos, parent=from_node)
 
-    def generate_final_course(self, last_step_node: Node) -> np.ndarray:
+    def generate_final_course(self, goal_node: Node) -> np.ndarray:
         if self.smoothing:
-            self.smooth_path(last_step_node)
+            self.smooth_path(goal_node)
 
         path = [self.end.pos]
-        node = last_step_node
+        node = goal_node
         while node.parent is not None:
             path.append(node.pos)
             node = node.parent
         path.append(node.pos)
         return np.array(path)
 
-    def smooth_path(self, last_step_node: Node) -> None:
-        if last_step_node.parent is None or last_step_node.parent.parent is None:
+    def smooth_path(self, goal_node: Node) -> None:
+        if goal_node.parent is None or goal_node.parent.parent is None:
             return
 
         could_smooth = True
-        print(f"{len(self.node_list)=}")
-        i = 0
         while could_smooth:
             could_smooth = False
-            node = last_step_node
-            grandparent = last_step_node.parent.parent
+            node = goal_node
+            grandparent = goal_node.parent.parent
             while grandparent is not None:
-                i += 1
-                # print(f"Comparing, step {i}")
                 if not self.landmarks.in_collision(node, grandparent):
                     node.parent = grandparent
                     could_smooth = True
@@ -165,32 +163,45 @@ class RRT:
     def check_collision_free(self, node: Node):
         return not self.landmarks.in_collision(node, node.parent)
 
+    @classmethod
+    def generate_plan(
+        cls, landmarks: list[Box], goal: Node, **kwargs
+    ) -> np.ndarray | None:
+        marks = LandmarkMap(
+            landmarks,
+            draw_extent=DrawExtent(),
+        )
+
+        rrt = RRT(
+            start=Node(np.array([0.0, 0.0])), goal=goal, landmarks=marks, **kwargs
+        )
+        return rrt.plan()
+
 
 def main():
-    landmarks = LandmarkMap(
-        [
-            Box(id=1, x=1_000, y=1_000),
-            Box(id=2, x=0, y=1_000),
-            Box(id=3, x=100, y=1_400),
-        ],
-        draw_extent=DrawExtent(),
-    )
+    landmarks = [
+        Box(id=1, x=1_000, y=1_000),
+        Box(id=2, x=0, y=1_000),
+        Box(id=3, x=100, y=1_400),
+    ]
 
-    rrt = RRT(
-        start=Node(np.array([0.0, 0.0])),
-        goal=Node(np.array([0.0, 2_000.0])),
-        landmarks=landmarks,
-        expand_dis=300,
-        goal_sample_rate=0.3,
-    )
+    goal = Node(np.array([0.0, 2_000.0]))
+    # rrt = RRT(
+    #     start=Node(np.array([0.0, 0.0])),
+    #     goal=goal,
+    #     landmarks=landmarks,
+    #     expand_dis=300,
+    #     goal_sample_rate=0.3,
+    # )
 
-    show_animation = True
+    # show_animation = False
     metadata = dict(title="RRT Test")
     writer = FFMpegWriter(fps=15, metadata=metadata)
     fig = plt.figure()
 
     with writer.saving(fig, "rrt_test.mp4", 100):
-        path = rrt.planning(animation=show_animation, writer=writer)
+        # path = rrt.plan(animation=show_animation, writer=writer)
+        path = RRT.generate_plan(landmarks, goal)
 
         if path is None:
             print("Cannot find path")
@@ -198,13 +209,34 @@ def main():
             print("found path!!")
 
             # Draw final path
-            if show_animation:
-                rrt.draw_graph()
-                plt.plot([x for (x, y) in path], [y for (x, y) in path], "-r")
-                plt.grid(True)
-                plt.pause(0.01)  # Need for Mac
-                plt.show()
-                writer.grab_frame()
+            # if show_animation:
+            #     rrt.draw_graph()
+            #     plt.plot([x for (x, y) in path], [y for (x, y) in path], "-r")
+            #     plt.grid(True)
+            #     plt.pause(0.01)  # Need for Mac
+            #     plt.show()
+            #     writer.grab_frame()
+
+    print("One run complete, doing timings...")
+    n_runs = 100
+    print(
+        "Took on average (sec): ",
+        timeit.timeit(
+            """
+landmarks = [
+    Box(id=1, x=1_000, y=1_000),
+    Box(id=2, x=0, y=1_000),
+    Box(id=3, x=100, y=1_400),
+]
+goal = Node(np.array([0.0, 2_000.0]))
+path = RRT.generate_plan(landmarks, goal)
+assert path is not None, "Couldn't find path!"
+""",
+            globals=globals(),
+            number=n_runs,
+        )
+        / n_runs,
+    )
 
 
 if __name__ == "__main__":

@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import dataclasses
 import struct
 import time
 from typing import NamedTuple
@@ -75,17 +74,17 @@ class MovementAction(NamedTuple):
         return cls(0, timestamp=time.time(), confident=True)
 
 
-@dataclasses.dataclass
 class Node:
     """
     RRT Node
     """
 
-    pos: np.ndarray
-    parent: Node | None = None
+    __slots__ = ["pos", "parent"]
+    __dict__ = None
+
+    def __init__(self, pos: np.ndarray, parent: Node | None = None):
+        self.pos: np.ndarray = pos
+        self.parent: Node | None = parent
 
     def distance_to(self, other: Node):
-        # node distance can be nontrivial as some form of cost-to-go function
-        # for e.g. underactuated system
-        # use Euclidean norm for basic holonomic point mass or as heuristics
         return np.linalg.norm(other.pos - self.pos)

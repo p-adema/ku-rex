@@ -42,7 +42,9 @@ class KalmanState:
 
             if timestamp is not None:
                 duration = timestamp - self._timestamp
-                assert 0 < duration <= 5, f"Long duration! {timestamp=} {self._timestamp=}"
+                assert (
+                    0 < duration <= 5
+                ), f"Long duration! {timestamp=} {self._timestamp=}"
                 self._timestamp = timestamp
             else:
                 duration = force_duration
