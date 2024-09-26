@@ -1,7 +1,5 @@
 from time import sleep
 
-import numpy as np
-import cv2 as cv
 import robot
 
 arlo = robot.Robot()

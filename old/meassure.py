@@ -1,7 +1,7 @@
-from time import sleep
 import time
+from time import sleep
+
 import robot
-import math
 
 arlo = robot.Robot()
 
@@ -15,7 +15,7 @@ ERR_MAR = 100
 def find_edge(m: list):
     edge = 0.0
     for i in range(1, len(m)):
-        if not (m[i] in range(m[i - 1] - ERR_MAR, m[i - 1] + ERR_MAR)):
+        if m[i] not in range(m[i - 1] - ERR_MAR, m[i - 1] + ERR_MAR):
             edge = m[i - 1]
             break
         if i == len(m) - 1:
