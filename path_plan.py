@@ -3,30 +3,69 @@ from __future__ import annotations
 import contextlib
 import queue
 import socket
+import struct
 import threading
 import time
 
-import aruco_utils
-import robot
-from aruco_utils import sample_markers
-from box_types import MovementAction, dedup_camera
-from constants import server_ip, server_port
-from kalman_state import KalmanState
+import numpy as np
 
-movement_actions: queue.SimpleQueue[MovementAction] = queue.SimpleQueue()
+import aruco_utils
+import move_calibrated
+from aruco_utils import sample_markers
+from box_types import Box, MovementAction, StateEstimate, dedup_camera
+from constants import server_ip, server_port
+from kalman_state_fixed import KalmanStateFixed
+from rrt_landmarks import RRT, Node
+
+movement_actions: queue.Queue[MovementAction] = queue.Queue()
 is_running = True
-state = KalmanState()
+state = KalmanStateFixed()
+plan = None
+
+
+class Link:
+    def __init__(self, ip, port):
+        self.s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        self.s.connect((ip, port))
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        self.s.close()
+
+    def empty(self):
+        self.s.send(b"!empty!end")
+
+    def send(self, boxes: list[Box], est_state: StateEstimate):
+        msg = []
+        for box in boxes:
+            msg.append(box.pack())
+        msg.append(b"!state")
+
+        msg.append(est_state.robot.pack())
+
+        for s_box in est_state.boxes:
+            msg.append(s_box.pack())
+
+        msg.append(b"!path")
+
+        if plan is not None:
+            path_flat = plan.flatten()
+            msg.append(struct.pack(f"<{len(path_flat)}d", *path_flat))
+
+        msg.append(b"!end")
+        self.s.send(b"".join(msg))
+        msg.clear()
 
 
 def state_thread():
     global movement_actions, is_running, state
     cam = aruco_utils.get_camera_picamera(downscale=1)
-    s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
 
-    try:
-        s.connect((server_ip, server_port))
-        msg = []
+    with Link(server_ip, server_port) as link:
         while is_running:
+            print(f"{state.current_state()}")
             img = cam.capture_array()[::1, ::1]
             timestamp = time.time()
             with contextlib.suppress(queue.Empty):
@@ -35,55 +74,64 @@ def state_thread():
 
             markers = sample_markers(img)
             if not markers:
-                s.send(b"!empty!end")
+                link.empty()
                 continue
-            try:
-                boxes = dedup_camera(markers)
-                state.update_camera(boxes, timestamp=timestamp)
-            except AssertionError as e:
-                if e.args:
-                    e.args = (e.args[0] + f" ({markers=})",) + e.args[1:]
-                else:
-                    e.args = (f"No args AssertionError ({markers=})",)
-                is_running = False
-                raise
+            boxes = dedup_camera(markers)
+            state.update_camera(boxes, timestamp=timestamp)
 
-            for box in boxes:
-                msg.append(box.pack())
-
-            msg.append(b"!state")
-
-            for s_box in state.state().boxes:
-                msg.append(s_box.pack())
-
-            msg.append(b"!end")
-
-            s.send(b"".join(msg))
-            msg.clear()
-        s.send(b"!close")
-    except ConnectionError as e:
-        print(f"Connection error: {e}")
-        is_running = False
-    finally:
-        s.close()
+            est_state = state.current_state()
+            link.send(boxes, est_state)
 
 
 def main_thread():
-    global movement_actions, is_running
+    global movement_actions, is_running, plan
     t = threading.Thread(target=state_thread, args=[])
     t.start()
     try:
-        arlo = robot.Robot()
-        input("Press enter to move")
-        movement_actions.put(MovementAction.moving(450))
-        arlo.go(66, 64)
-        t.join(timeout=6)
-        arlo.stop()
-        movement_actions.put(MovementAction.stop())
-        input("Press enter to exit.")
+        current_node = 0
+        while is_running:
+            est_state = state.current_state()
+            if plan is None and not est_state.boxes:
+                continue
+
+            if plan is not None:
+                # if np.linalg.norm(plan[current_node] - est_state.robot) < 100:
+                current_node += 1
+                if current_node == len(plan):
+                    print("Achieved goal!")
+                    is_running = False
+                else:
+                    angle, dist = state.propose_movement(
+                        plan[current_node], pos=plan[current_node - 1]
+                    )
+                    move_calibrated.turn(angle)
+                    state._angle += angle
+                    move_calibrated.go_foward(dist)
+                # else:
+                #     print(
+                #         f"Far away :( {est_state.robot=} {plan[current_node]=}",
+                #     )
+                #     pass
+            else:
+                movement_actions.put(MovementAction.moving(1))
+                plan = RRT.generate_plan(
+                    landmarks=est_state.boxes,
+                    start=est_state.robot,
+                    goal=Node(
+                        np.array([est_state.boxes[0].x, est_state.boxes[0].y + 900])
+                    ),
+                )[::-1]
+                current_node = 1
+                print("plan:", plan)
+                angle, dist = state.propose_movement(plan[current_node], pos=plan[0])
+                move_calibrated.turn(angle)
+                state._angle += angle
+                print(f"New angle: {state._angle}")
+                move_calibrated.go_foward(dist)
     except KeyboardInterrupt:
         print("Quitting...")
     finally:
+        move_calibrated.stop()
         is_running = False
     t.join()
 

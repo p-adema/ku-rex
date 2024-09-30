@@ -15,7 +15,7 @@ class CameraBox(NamedTuple):
 
 _box_fmt = "<Bdd"
 BOX_SIZE = 200
-BOX_SIZE_MARGIN = BOX_SIZE + 150
+BOX_SIZE_MARGIN = BOX_SIZE + 550
 
 
 class Box(NamedTuple):
