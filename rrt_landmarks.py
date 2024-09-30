@@ -8,6 +8,7 @@ https://github.com/AtsushiSakai/PythonRobotics/blob/master/PathPlanning/RRT/rrt.
 
 from __future__ import annotations
 
+import random
 import timeit
 
 import matplotlib.pyplot as plt
@@ -82,6 +83,7 @@ class RRT:
                 if writer is not None:
                     writer.grab_frame()
 
+        print("Warning: no plan!")
         return None  # cannot find path
 
     def steer(self, from_node: Node, to_node: Node) -> Node:
@@ -100,13 +102,13 @@ class RRT:
         if self.smoothing:
             self.smooth_path(goal_node)
 
-        path = [self.end.pos]
+        path = []
         node = goal_node
         while node.parent is not None:
             path.append(node.pos)
             node = node.parent
         path.append(node.pos)
-        return np.array(path)
+        return np.round(np.array(path))
 
     def smooth_path(self, goal_node: Node) -> None:
         if goal_node.parent is None or goal_node.parent.parent is None:
@@ -130,7 +132,13 @@ class RRT:
         if self._rng.random() < self.goal_sample_rate:
             return Node(self._rng.normal(loc=self.end.pos, scale=[500, 500], size=(2,)))
         else:
-            return Node(self._rng.uniform(self.min_rand, self.max_rand, size=(2,)))
+            _ = self._rng.uniform(self.min_rand, self.max_rand, size=(2,))
+            return Node(
+                np.array(
+                    [random.randint(-1_000, 50), random.randint(-50, 5_000)],
+                    dtype=float,
+                )
+            )
 
     def draw_graph(self, rnd=None) -> None:
         # # for stopping simulation with the esc key.
@@ -165,7 +173,7 @@ class RRT:
 
     @classmethod
     def generate_plan(
-        cls, landmarks: list[Box], goal: Node, **kwargs
+        cls, landmarks: list[Box], start: Box, goal: Node, **kwargs
     ) -> np.ndarray | None:
         marks = LandmarkMap(
             landmarks,
@@ -173,7 +181,10 @@ class RRT:
         )
 
         rrt = RRT(
-            start=Node(np.array([0.0, 0.0])), goal=goal, landmarks=marks, **kwargs
+            start=Node(np.array([start.x, start.y])),
+            goal=goal,
+            landmarks=marks,
+            **kwargs,
         )
         return rrt.plan()
 

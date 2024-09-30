@@ -8,7 +8,7 @@ import numpy as np
 from box_types import Box, MovementAction, StateEstimate
 
 
-# State format: (4 + n_boxes * 2)
+# State format: (2 + n_boxes * 2)
 # RobotX, RobotY, Box1X, Box1Y, ...
 # Measurement format: (n_boxes * 2)
 # Box1X, Box1Y, ...
@@ -25,19 +25,17 @@ class KalmanStateFixed:
 
         # A matrix of (Measurement) x (State)
         # gets left-multiplied with the state to produce the predicted measurement
-        self._measurement_mat = np.hstack(
-            (np.tile(np.diag([-1, -1]), n_boxes).T, np.identity(2 * n_boxes))
-        )
+        self._measurement_mat = np.zeros((n_boxes * 2, 2 + n_boxes * 2))
         # (Measurement) x (Measurement) covariance matrix.
         # We're fairly certain about the camera measurements
         self._measurement_covar = np.diag(np.repeat(20, n_boxes * 2))
 
-        self._buf_identity = np.identity(4 + self._n_boxes * 2)
+        self._buf_identity = np.identity(2 + self._n_boxes * 2)
         self._buf_measurement = np.zeros((self._n_boxes * 2,))
         self._timestamp = time.time()
         self._lock = threading.Lock()
         self._movements = queue.Queue()
-        self._angle = 0.0
+        self._angle = math.radians(90.0)
         print(f"Init state: {self._timestamp=}")
 
     def update_camera(
@@ -51,20 +49,25 @@ class KalmanStateFixed:
 
         with self._lock:
             self._buf_measurement.fill(0)
+            self._measurement_mat.fill(0)
 
             for box in boxes:
                 self._buf_measurement[(box.id - 1) * 2 : box.id * 2] = box
                 # Only valid measurements should be taken into account
-                self._measurement_mat[box.id * 2, 4 + box.id * 2] = 1
-                self._measurement_mat[1 + box.id * 2, 5 + box.id * 2] = 1
+                self._measurement_mat[-2 + box.id * 2, box.id * 2] = 1
+                self._measurement_mat[-1 + box.id * 2, 1 + box.id * 2] = 1
+                self._measurement_mat[-2 + box.id * 2, 0] = -1
+                self._measurement_mat[-1 + box.id * 2, 1] = -1
+
+            angle = self._angle - math.radians(90)
 
             rot_mat = np.array(
                 [
-                    [math.cos(self._angle), math.sin(self._angle)],
-                    [math.sin(-self._angle), math.cos(self._angle)],
+                    [math.cos(angle), math.sin(angle)],
+                    [math.sin(-angle), math.cos(angle)],
                 ]
             )
-            measurements = self._measurement_mat.reshape((self._n_boxes, 2)) @ rot_mat
+            measurements = self._buf_measurement.reshape((self._n_boxes, 2)) @ rot_mat
 
             if timestamp is not None:
                 duration = timestamp - self._timestamp
@@ -76,7 +79,7 @@ class KalmanStateFixed:
                 duration = force_duration
                 self._timestamp += force_duration
 
-            self._update_camera(measurements, duration)
+            self._update_camera(measurements.flatten(), duration)
 
     def _update_camera(self, measurement: np.ndarray, duration: float):
         assert measurement.shape == (self._n_boxes * 2,), "Wrong measurement shape!"
@@ -114,26 +117,47 @@ class KalmanStateFixed:
             self._transition_mat @ self._cur_covar @ self._transition_mat.T + sigma_x
         )
 
-    def update_movement(self, move: MovementAction, advance=True):
-        assert move.timestamp - self._timestamp > -0.01, "Out of order move update!"
-        with self._lock:
-            if advance and move.timestamp > self._timestamp:
-                self._advance(move.timestamp)
+    def update_movement(self, move: MovementAction):
+        assert move.timestamp > self._timestamp, "Out of order move update!"
+        if move.speed > 0:
+            self._transition_covar = np.diag(
+                [500.0, 500.0] + [0.1] * (self._n_boxes * 2)
+            )
+        else:
+            self._transition_covar = np.diag([50.0, 50.0] + [0.1] * (self._n_boxes * 2))
+        # TODO
 
-            self._cur_mean[0] = move.speed
-            self._cur_covar[0, 0] = 10 if move.confident else 200
-
-    def state(self, permissible_variance: float = 200.0) -> StateEstimate:
+    def current_state(self, permissible_variance: float = 200.0) -> StateEstimate:
         with self._lock:
             boxes = []
             var_diag = np.diag(self._cur_covar)
-            for box in range(self._n_boxes):
-                if var_diag[1 + box * 2 : 3 + box * 2].max() < permissible_variance:
+            for box in range(1, self._n_boxes + 1):
+                if var_diag[box * 2 : 1 + box * 2].max() < permissible_variance:
                     boxes.append(
-                        Box(box + 1, *self._cur_mean[1 + box * 2 : 3 + box * 2])
+                        Box(
+                            id=box,
+                            x=self._cur_mean[box * 2],
+                            y=self._cur_mean[box * 2 + 1],
+                        )
                     )
 
             return StateEstimate(Box(0, *self._cur_mean[:2]), boxes)
+
+    def propose_movement(self, target: np.ndarray, pos: np.ndarray = None):
+        if pos is None:
+            pos = self._cur_mean[:2].flatten()
+        diff = target.flatten() - pos
+        target_angle = np.arctan(diff[1] / diff[0])
+        if target_angle > 0:
+            print("Right?")
+            turn = target_angle - self._angle
+        else:
+            print("Left?")
+            turn = self._angle + target_angle
+        print(f"Turning {turn}")
+
+        dist = np.linalg.norm(diff)
+        return turn, dist
 
 
 def main_test():
@@ -160,7 +184,7 @@ def main_test():
         # print("Measurement:", boxes)
         state.update_camera(boxes, force_duration=0.2)
         # state.debug_print()
-        print("State:      ", state.state())
+        print("State:      ", state.current_state())
 
     print("True y:     ", coords[:, 1] + speeds[-1])
     print(f"took {time.perf_counter() - start} seconds")

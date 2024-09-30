@@ -11,7 +11,7 @@ import robot
 from aruco_utils import sample_markers
 from box_types import MovementAction, dedup_camera
 from constants import server_ip, server_port
-from kalman_state_fixed import KalmanState
+from kalman_state_fixed import KalmanStateFixed
 
 movement_actions: queue.Queue[MovementAction] = queue.Queue()
 is_running = True
@@ -25,10 +25,10 @@ def state_thread():
     try:
         s.connect((server_ip, server_port))
         msg = []
-        state = KalmanState()
+        state = KalmanStateFixed()
 
         while is_running:
-            print(f"{state.state()}")
+            print(f"{state.current_state()}")
 
             img = cam.capture_array()[::1, ::1]
             timestamp = time.time()
@@ -55,7 +55,7 @@ def state_thread():
 
             msg.append(b"!state")
 
-            est_state = state.state()
+            est_state = state.current_state()
             msg.append(est_state.robot.pack())
 
             for s_box in est_state.boxes:
@@ -81,7 +81,7 @@ def main_thread():
         input("Press enter to move")
         movement_actions.put(MovementAction.moving(450))
         arlo.go(66, 64)
-        t.join(timeout=6)
+        t.join(timeout=1)
         arlo.stop()
         movement_actions.put(MovementAction.stop())
         input("Press enter to exit.")

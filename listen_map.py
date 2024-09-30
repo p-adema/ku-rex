@@ -1,7 +1,9 @@
 import socket
+import struct
 from typing import NamedTuple
 
 import matplotlib.pyplot as plt
+import numpy as np
 from matplotlib.patches import Circle
 
 from constants import server_ip, server_port
@@ -14,8 +16,9 @@ def axes_base(ax_live: plt.Axes, ax_state: plt.Axes):
         ax.set_xlabel("Width")
         ax.set_ylabel("Depth")
         ax.set_aspect("equal")
-        ax.scatter(0, 0, marker="o", c="red", s=10)
-        ax.add_artist(Circle((0, -225), 225, fill=True, color="black"))
+
+    ax_live.scatter(0, 0, marker="o", c="red", s=10)
+    ax_live.add_artist(Circle((0, -225), 225, fill=True, color="black"))
 
     ax_live.set_ylim((-500, 6_000))
     ax_live.set_xlim((-2000, 2000))
@@ -28,6 +31,7 @@ class Observation(NamedTuple):
     cam: list[Box]
     state: list[Box]
     visible: set[int]
+    path: np.ndarray
 
 
 def parse_msg(msg: bytes) -> tuple[bool, list[Observation]]:
@@ -43,13 +47,15 @@ def parse_msg(msg: bytes) -> tuple[bool, list[Observation]]:
         if not update:
             continue
 
-        cam_b, state_b = update.split(b"!state")
+        cam_b, state_path = update.split(b"!state")
+        state_b, path_b = state_path.split(b"!path")
 
         cam = Box.unpack_multi(cam_b)
         state = Box.unpack_multi(state_b)
+        path = np.array(struct.unpack(f"<{len(path_b) // 8}d", path_b)).reshape((-1, 2))
         visible = {box.id for box in cam}
 
-        updates.append(Observation(cam, state, visible))
+        updates.append(Observation(cam, state, visible, path))
 
     return closed, updates
 
@@ -92,15 +98,22 @@ def axes_live(ax_live: plt.Axes, update: Observation):
 
 def axes_state(ax_state: plt.Axes, update: Observation):
     for box in update.state:
-        ax_state.add_artist(
-            Circle(
-                (box.x, box.y),
-                200,
-                fill=False,
-                color="green" if box.id in update.visible else "red",
+        if box.id != 0:
+            ax_state.add_artist(
+                Circle(
+                    (box.x, box.y),
+                    200,
+                    fill=False,
+                    color="green" if box.id in update.visible else "red",
+                )
             )
-        )
-        ax_state.text(box.x - 70, box.y - 70, str(box.id), ma="center")
+            ax_state.text(box.x - 70, box.y - 70, str(box.id), ma="center")
+        else:
+            ax_state.scatter(box.x, box.y, marker="o", c="red", s=10)
+            ax_state.add_artist(
+                Circle((box.x, box.y - 225), 225, fill=True, color="black")
+            )
+    ax_state.plot(update.path[:, 0], update.path[:, 1])
 
 
 def main():
