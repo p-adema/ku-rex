@@ -39,6 +39,10 @@ class Box(NamedTuple):
         assert len(b) % 17 == 0, f"Invalid byte length ({b!r} length {len(b)})"
         return [Box.unpack(b[17 * i : 17 * (i + 1)]) for i in range(len(b) // 17)]
 
+    def __array__(self, dtype=None):
+        """Numpy interoperability"""
+        return np.array((self.x, self.y), dtype=dtype).__array__()
+
 
 def dedup_camera(observed: list[CameraBox]) -> list[Box]:
     # Can be done better
@@ -56,7 +60,7 @@ def dedup_camera(observed: list[CameraBox]) -> list[Box]:
 
 
 class StateEstimate(NamedTuple):
-    speed: float
+    robot: Box
     boxes: list[Box]
 
 

@@ -5,7 +5,7 @@ import matplotlib.pyplot as plt
 from matplotlib.patches import Circle
 
 from constants import server_ip, server_port
-from kalman_state import Box, KalmanState
+from kalman_state import Box
 
 
 def axes_base(ax_live: plt.Axes, ax_state: plt.Axes):
@@ -61,7 +61,7 @@ def handle_robot(client: socket.socket):
     axes_base(ax_live, ax_state)
     plt.pause(0.1)
     closed = False
-    state = KalmanState(n_boxes=4)
+    # state = KalmanState(n_boxes=4)
 
     while not closed:
         msg = client.recv(4096)
@@ -69,11 +69,11 @@ def handle_robot(client: socket.socket):
         plt.pause(0.01)
 
         for obs in updates:
-            state.update_camera(obs.cam, force_duration=0.2)
-            est = state.state()
+            # state.update_camera(obs.cam, force_duration=0.2)
+            # est = state.state()
             # assert est.boxes == obs.state, "State divergence!"
 
-            print(f"Going {est.speed} mm/s")
+            # print(f"Going {est.speed} mm/s")
             axes_base(ax_live, ax_state)
             axes_live(ax_live, obs)
             axes_state(ax_state, obs)

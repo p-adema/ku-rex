@@ -11,9 +11,9 @@ import robot
 from aruco_utils import sample_markers
 from box_types import MovementAction, dedup_camera
 from constants import server_ip, server_port
-from kalman_state import KalmanState
+from kalman_state_fixed import KalmanState
 
-movement_actions: queue.SimpleQueue[MovementAction] = queue.SimpleQueue()
+movement_actions: queue.Queue[MovementAction] = queue.Queue()
 is_running = True
 
 
@@ -34,7 +34,7 @@ def state_thread():
             timestamp = time.time()
             with contextlib.suppress(queue.Empty):
                 move = movement_actions.get(block=False)
-                state.update_movement(move)
+                # state.update_movement(move)
 
             markers = sample_markers(img)
             if not markers:
@@ -55,7 +55,10 @@ def state_thread():
 
             msg.append(b"!state")
 
-            for s_box in state.state().boxes:
+            est_state = state.state()
+            msg.append(est_state.robot.pack())
+
+            for s_box in est_state.boxes:
                 msg.append(s_box.pack())
 
             msg.append(b"!end")
