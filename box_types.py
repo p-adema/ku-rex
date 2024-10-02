@@ -14,8 +14,6 @@ class CameraBox(NamedTuple):
 
 
 _box_fmt = "<Bdd"
-BOX_SIZE = 200
-BOX_SIZE_MARGIN = BOX_SIZE + 550
 
 
 class Box(NamedTuple):
@@ -62,6 +60,7 @@ def dedup_camera(observed: list[CameraBox]) -> list[Box]:
 class StateEstimate(NamedTuple):
     robot: Box
     boxes: list[Box]
+    angle: float
 
 
 class MovementAction(NamedTuple):

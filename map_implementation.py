@@ -8,7 +8,8 @@ import matplotlib.pyplot as plt
 import numpy as np
 from matplotlib.patches import Circle
 
-from box_types import BOX_SIZE_MARGIN, Box, Node
+from box_types import Box, Node
+from constants import box_size_margin
 
 
 class DrawExtent(NamedTuple):
@@ -27,13 +28,13 @@ class LandmarkMap:
     def in_collision(self, a: Node, b: Node):
         a, b = a.pos, b.pos
         a_close = (
-            np.linalg.norm(self._coords - a.reshape((1, 2)), axis=1) < BOX_SIZE_MARGIN
+            np.linalg.norm(self._coords - a.reshape((1, 2)), axis=1) < box_size_margin
         )
         if np.any(a_close):
             return True
 
         b_close = (
-            np.linalg.norm(self._coords - b.reshape((1, 2)), axis=1) < BOX_SIZE_MARGIN
+            np.linalg.norm(self._coords - b.reshape((1, 2)), axis=1) < box_size_margin
         )
         if np.any(b_close):
             return True
@@ -45,7 +46,7 @@ class LandmarkMap:
         proj = proj_weight * direction.reshape((1, 2))
         proj_dist = np.linalg.norm(coords - proj, axis=1)
         proj_close = np.where(
-            within_line.reshape((-1, 1)), proj_dist < BOX_SIZE_MARGIN, False
+            within_line.reshape((-1, 1)), proj_dist < box_size_margin, False
         )
         return np.any(proj_close)
 

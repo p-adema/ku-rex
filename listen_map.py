@@ -1,3 +1,4 @@
+import math
 import socket
 import struct
 from typing import NamedTuple
@@ -6,7 +7,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 from matplotlib.patches import Circle
 
-from constants import server_ip, server_port
+import constants
 from kalman_state import Box
 
 
@@ -17,13 +18,13 @@ def axes_base(ax_live: plt.Axes, ax_state: plt.Axes):
         ax.set_ylabel("Depth")
         ax.set_aspect("equal")
 
-    ax_live.scatter(0, 0, marker="o", c="red", s=10)
-    ax_live.add_artist(Circle((0, -225), 225, fill=True, color="black"))
+    ax_live.scatter(0, 225, marker="o", c="red", s=10)
+    ax_live.add_artist(Circle((0, 0), 225, fill=True, color="black"))
 
     ax_live.set_ylim((-500, 6_000))
     ax_live.set_xlim((-2000, 2000))
-    ax_state.set_xlim((-5_000, 5_000))
-    ax_state.set_ylim((-5_000, 5_000))
+    ax_state.set_xlim((constants.map_min_x, constants.map_max_x))
+    ax_state.set_ylim((constants.map_min_y, constants.map_max_y))
     plt.tight_layout()
 
 
@@ -32,6 +33,7 @@ class Observation(NamedTuple):
     state: list[Box]
     visible: set[int]
     path: np.ndarray
+    angle: float
 
 
 def parse_msg(msg: bytes) -> tuple[bool, list[Observation]]:
@@ -48,14 +50,15 @@ def parse_msg(msg: bytes) -> tuple[bool, list[Observation]]:
             continue
 
         cam_b, state_path = update.split(b"!state")
-        state_b, path_b = state_path.split(b"!path")
+        angle_state_b, path_b = state_path.split(b"!path")
 
         cam = Box.unpack_multi(cam_b)
-        state = Box.unpack_multi(state_b)
+        angle = struct.unpack("<d", angle_state_b[:8])[0]
+        state = Box.unpack_multi(angle_state_b[8:])
         path = np.array(struct.unpack(f"<{len(path_b) // 8}d", path_b)).reshape((-1, 2))
         visible = {box.id for box in cam}
 
-        updates.append(Observation(cam, state, visible, path))
+        updates.append(Observation(cam, state, visible, path, angle))
 
     return closed, updates
 
@@ -107,19 +110,34 @@ def axes_state(ax_state: plt.Axes, update: Observation):
                     color="green" if box.id in update.visible else "red",
                 )
             )
+            ax_state.add_artist(
+                Circle(
+                    (box.x, box.y),
+                    constants.box_size_margin,
+                    fill=False,
+                    color="blue",
+                    linestyle="dashed",
+                )
+            )
             ax_state.text(box.x - 70, box.y - 70, str(box.id), ma="center")
         else:
-            ax_state.scatter(box.x, box.y, marker="o", c="red", s=10)
-            ax_state.add_artist(
-                Circle((box.x, box.y - 225), 225, fill=True, color="black")
+            print("angle", math.degrees(update.angle))
+            rot_mat = np.array(
+                [
+                    [math.cos(update.angle), math.sin(-update.angle)],
+                    [math.sin(update.angle), math.cos(update.angle)],
+                ]
             )
+            camera_pos = (rot_mat @ np.array([[225], [0]])).flatten() + box
+            ax_state.scatter(camera_pos[0], camera_pos[1], marker="o", c="red", s=10)
+            ax_state.add_artist(Circle((box.x, box.y), 225, fill=True, color="black"))
     ax_state.plot(update.path[:, 0], update.path[:, 1])
 
 
 def main():
     server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     try:
-        server.bind((server_ip, server_port))
+        server.bind((constants.server_ip, constants.server_port))
         server.listen(0)
         while True:
             s, addr = server.accept()

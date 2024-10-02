@@ -3,10 +3,9 @@ import time
 
 import robot
 
-arlo = robot.Robot()
-
-ROBOT_SPEED = 400  # millimeters per second
-ROBOT_ROTATION = 0.0078  # seconds per degree
+ROBOT_SPEED = 350  # millimeters per second 450
+ROBOT_ROTATION = 0.0078  # seconds per degree 0.0078
+ROBOT_CAL_20 = 17.3
 left_speed = 66
 right_speed = 63
 waitTime = 0.041
@@ -40,10 +39,13 @@ class CalibratedRobot:
         time.sleep(sleep_dur)
         self.arlo.stop()
 
+    def scan_left(self):
+        self.turn_left(ROBOT_CAL_20)
+
     def turn(self, theta_rad: float):
-        print(f"Turn {theta_rad=}")
         # Make sure we don't turn more than 180 degrees
         theta_deg = (math.degrees(theta_rad) + 540) % 360 - 180
+        print(f"Turn {theta_rad=} {theta_deg=}")
         if abs(theta_deg) < 5:
             return
         if theta_deg > 0:
@@ -51,9 +53,7 @@ class CalibratedRobot:
         else:
             self.turn_right(-theta_deg)
 
-    def stop(
-        self,
-    ):
+    def stop(self):
         print("Stopping robot")
         self.arlo.stop()
 

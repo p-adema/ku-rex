@@ -8,14 +8,13 @@ https://github.com/AtsushiSakai/PythonRobotics/blob/master/PathPlanning/RRT/rrt.
 
 from __future__ import annotations
 
-import random
 import timeit
 
 import matplotlib.pyplot as plt
 import numpy as np
-import numpy.random
 from matplotlib.animation import FFMpegWriter
 
+import constants
 from box_types import Box, Node
 from map_implementation import DrawExtent, LandmarkMap
 
@@ -33,22 +32,17 @@ class RRT:
         expand_dis: float = 300.0,
         goal_sample_rate: float = 0.3,
         max_iter: int = 500,
-        min_rand: float = -5_000.0,
-        max_rand: float = +5_000.0,
         smoothing: bool = True,
     ):
         self.start = start
         self.end = goal
         self.landmarks = landmarks
 
-        self.min_rand = min_rand
-        self.max_rand = max_rand
-
         self.extend_length = expand_dis
         self.goal_sample_rate = goal_sample_rate
         self.max_iter = max_iter
         self.smoothing = smoothing
-        self._rng = np.random.default_rng()
+        self._rng = np.random.default_rng(42)
 
         self.node_list: list[Node] = []
         self.pos_array: np.array = np.repeat(start.pos.reshape((1, 2)), 500, axis=0)
@@ -130,12 +124,20 @@ class RRT:
 
     def get_random_node(self) -> Node:
         if self._rng.random() < self.goal_sample_rate:
-            return Node(self._rng.normal(loc=self.end.pos, scale=[500, 500], size=(2,)))
+            near_goal = self._rng.normal(loc=self.end.pos, scale=[500, 500], size=(2,))
+            clipped_goal = np.clip(
+                near_goal,
+                (constants.map_min_x, constants.map_min_y),
+                (constants.map_max_x, constants.map_max_y),
+            )
+            return Node(clipped_goal)
         else:
-            _ = self._rng.uniform(self.min_rand, self.max_rand, size=(2,))
             return Node(
                 np.array(
-                    [random.randint(-1_000, 50), random.randint(-50, 5_000)],
+                    [
+                        self._rng.uniform(constants.map_min_x, constants.map_max_x),
+                        self._rng.uniform(constants.map_min_y, constants.map_max_y),
+                    ],
                     dtype=float,
                 )
             )
@@ -227,27 +229,27 @@ def main():
             #     plt.pause(0.01)  # Need for Mac
             #     plt.show()
             #     writer.grab_frame()
-
-    print("One run complete, doing timings...")
-    n_runs = 100
-    print(
-        "Took on average (sec): ",
-        timeit.timeit(
-            """
-landmarks = [
-    Box(id=1, x=1_000, y=1_000),
-    Box(id=2, x=0, y=1_000),
-    Box(id=3, x=100, y=1_400),
-]
-goal = Node(np.array([0.0, 2_000.0]))
-path = RRT.generate_plan(landmarks, goal)
-assert path is not None, "Couldn't find path!"
-""",
-            globals=globals(),
-            number=n_runs,
+    if path is not None:
+        print("One run complete, doing timings...")
+        n_runs = 100
+        print(
+            "Took on average (sec): ",
+            timeit.timeit(
+                """
+    landmarks = [
+        Box(id=1, x=1_000, y=1_000),
+        Box(id=2, x=0, y=1_000),
+        Box(id=3, x=100, y=1_400),
+    ]
+    goal = Node(np.array([0.0, 2_000.0]))
+    path = RRT.generate_plan(landmarks, goal)
+    assert path is not None, "Couldn't find path!"
+    """,
+                globals=globals(),
+                number=n_runs,
+            )
+            / n_runs,
         )
-        / n_runs,
-    )
 
 
 if __name__ == "__main__":
