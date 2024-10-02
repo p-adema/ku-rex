@@ -87,7 +87,7 @@ def main_thread():
     global movement_actions, is_running, plan
     t = threading.Thread(target=state_thread, args=[])
     t.start()
-    try:
+    with move_calibrated.CalibratedRobot() as robot:
         current_node = 0
         while is_running:
             est_state = state.current_state()
@@ -104,9 +104,9 @@ def main_thread():
                     angle, dist = state.propose_movement(
                         plan[current_node], pos=plan[current_node - 1]
                     )
-                    move_calibrated.turn(angle)
+                    robot.turn(angle)
                     state._angle += angle
-                    move_calibrated.go_foward(dist)
+                    robot.go_forward(dist)
                 # else:
                 #     print(
                 #         f"Far away :( {est_state.robot=} {plan[current_node]=}",
@@ -124,15 +124,11 @@ def main_thread():
                 current_node = 1
                 print("plan:", plan)
                 angle, dist = state.propose_movement(plan[current_node], pos=plan[0])
-                move_calibrated.turn(angle)
+                robot.turn(angle)
                 state._angle += angle
                 print(f"New angle: {state._angle}")
-                move_calibrated.go_foward(dist)
-    except KeyboardInterrupt:
-        print("Quitting...")
-    finally:
-        move_calibrated.stop()
-        is_running = False
+                robot.go_forward(dist)
+    is_running = False
     t.join()
 
 

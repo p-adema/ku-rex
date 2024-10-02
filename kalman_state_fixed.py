@@ -147,13 +147,8 @@ class KalmanStateFixed:
         if pos is None:
             pos = self._cur_mean[:2].flatten()
         diff = target.flatten() - pos
-        target_angle = np.arctan(diff[1] / diff[0])
-        if target_angle > 0:
-            print("Right?")
-            turn = target_angle - self._angle
-        else:
-            print("Left?")
-            turn = self._angle + target_angle
+        target_angle = np.arctan2(diff[1], diff[0])
+        turn = self._angle - target_angle
         print(f"Turning {turn}")
 
         dist = np.linalg.norm(diff)
