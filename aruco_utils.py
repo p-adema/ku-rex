@@ -71,15 +71,23 @@ def get_camera_cv(
 
 
 def get_camera_picamera(
-    fps: int = 30, image_size=(1280, 720), downscale: int = 1
+    fps: int = 30,
+    image_size=(1280, 720),
+    downscale: int = 4,
+    exposure_time_ns=2_000,
+    gain=40,
 ) -> picamera2.Picamera2:
     cam = picamera2.Picamera2()
     frame_duration_limit = int(1 / fps * 1000000)  # Microseconds
     image_size = image_size[0] // downscale, image_size[1] // downscale
     picam2_config = cam.create_video_configuration(
         {"size": image_size, "format": "RGB888"},
-        controls={"FrameDurationLimits": (frame_duration_limit, frame_duration_limit)},
-        buffer_count=1,
+        controls={
+            "FrameDurationLimits": (frame_duration_limit, frame_duration_limit),
+            "ExposureTime": exposure_time_ns,
+            "AnalogueGain": gain,
+        },
+        buffer_count=0,
         queue=False,
     )
     cam.align_configuration(picam2_config)

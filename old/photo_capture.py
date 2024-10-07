@@ -1,9 +1,10 @@
 import os
 
-os.environ["OPENCV_LOG_LEVEL"] = "E"
 import numpy as np
 
-from aruco_utils import get_camera_picamera
+os.environ["OPENCV_LOG_LEVEL"] = "E"
+from aruco_utils import get_camera_picamera  # noqa
+
 
 # Define some constants
 low_threshold = 35

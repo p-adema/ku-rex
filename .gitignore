@@ -7,6 +7,7 @@ __pycache__/
 *.png
 *.tex
 *.pdf
+*.DS_Store
 data/
 # C extensions
 *.so

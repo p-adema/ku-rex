@@ -1,6 +1,8 @@
 import math
 import time
 
+import numpy as np
+
 import robot
 
 ROBOT_SPEED = 350  # millimeters per second 450
@@ -8,7 +10,16 @@ ROBOT_ROTATION = 0.0078  # seconds per degree 0.0078
 ROBOT_CAL_20 = 17.3
 left_speed = 66
 right_speed = 63
-waitTime = 0.041
+
+arr_times = np.array(
+    [0.02, 0.04, 0.05, 0.06, 0.08, 0.1, 0.12, 0.14, 0.15, 0.16, 0.18, 0.2]
+)
+arr_left_angles = np.array(
+    [0.4, 1.6, 2.2, 3.4, 6.0, 10.4, 16.0, 21.2, 22.0, 24.4, 27.8, 31.8]
+)
+arr_right_angles = np.array(
+    [0.4, 1.6, 2.8, 3.6, 6.2, 10.4, 15.8, 20.8, 23.2, 25.2, 27.4, 30.4]
+)
 
 
 class CalibratedRobot:
@@ -26,17 +37,21 @@ class CalibratedRobot:
         time.sleep(sleep_dur)
         self.arlo.stop()
 
-    # Turning is imprecise below 20 and above 200
     def turn_right(self, theta_deg: float):
-        sleep_dur = ROBOT_ROTATION * theta_deg
-        self.arlo.go(+left_speed, -right_speed)
-        time.sleep(sleep_dur)
+        if theta_deg < 30:
+            sleep_dur = np.interp(theta_deg, arr_right_angles, arr_times)
+        else:
+            sleep_dur = 0.007970288435463647 * theta_deg - 0.044264287596813466
+        self.arlo.go(+left_speed, -right_speed, t=sleep_dur)
         self.arlo.stop()
 
     def turn_left(self, theta_deg: float):
-        sleep_dur = ROBOT_ROTATION * theta_deg
-        self.arlo.go(-left_speed, +right_speed)
-        time.sleep(sleep_dur)
+        if theta_deg < 30:
+            sleep_dur = np.interp(theta_deg, arr_left_angles, arr_times)
+        else:
+            sleep_dur = 0.008031241606277339 * theta_deg - 0.0453796789728319
+
+        self.arlo.go(-66, +64, t=sleep_dur)
         self.arlo.stop()
 
     def scan_left(self):
