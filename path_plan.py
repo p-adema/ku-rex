@@ -56,7 +56,7 @@ def initial_scan(
         state.set_pos(turn=math.radians(turned))
         link.send(boxes, state.current_state(), plan)
 
-        if not turning.isSet():
+        if turning.isSet():
             print("break")
             break
 
