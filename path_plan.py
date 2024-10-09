@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import math
 import threading
 import time
 
@@ -16,15 +15,16 @@ from kalman_state_fixed import KalmanStateFixed
 from move_calibrated import CalibratedRobot
 from rrt_landmarks import RRT, Node
 
-GOAL = Node(np.array([-600, 1_600]))
+GOAL = Node(np.array([-1_200, 0]))
 
 KNOWN_BOXES = [
     Box(id=3, x=0, y=0),
-    Box(id=6, x=-600, y=1_000),
+    Box(id=6, x=-1_200, y=1_000),
     # Box(id=1, x=300, y=2_400),
 ]
 
 stop_program = threading.Event()
+turn_ready = threading.Event()
 scan_ready = threading.Event()
 
 plan = None
@@ -33,26 +33,15 @@ plan = None
 def initial_scan(
     cam: picamera2.Picamera2,
     state: KalmanStateFixed,
-    robot: CalibratedRobot,
     link: Link,
-    turn_circle: bool = True,
 ):
-    for _ in range(18 * turn_circle):
+    while not turn_ready.is_set():
         img = cam.capture_array()
         timestamp = time.time()
         boxes = dedup_camera(sample_markers(img))
         state.update_camera(boxes, timestamp=timestamp)
-        # print(f"{len(boxes)} found scan {i} ({boxes} -> {state.current_state()})")
-        # print(
-        #     "Position variance:",
-        #     np.round(
-        #         np.linalg.norm(np.diag(state._cur_covar).reshape((-1, 2)), axis=1)
-        #     ),
-        # )
-        with robot.turn(math.radians(20)) as move:
-            state.set_move_predictor(move)
         link.send(boxes, state.current_state(), plan)
-        time.sleep(0.4)
+
     img = cam.capture_array()
     timestamp = time.time()
     boxes = dedup_camera(sample_markers(img))
@@ -76,12 +65,11 @@ def initial_scan(
 
 def state_thread(
     state: KalmanStateFixed,
-    robot: CalibratedRobot,
 ):
     try:
         with Link(server_ip, server_port) as link:
             cam = aruco_utils.get_camera_picamera()
-            initial_scan(cam, state, robot, link, turn_circle=True)
+            initial_scan(cam, state, link)
             scan_ready.set()
             while not stop_program.is_set():
                 print(f"State thread: {state.current_state()}")
@@ -108,9 +96,12 @@ def main_thread():
     global plan
     state = KalmanStateFixed(n_boxes=9)
     with CalibratedRobot() as robot:
-        t = threading.Thread(target=state_thread, args=[state, robot])
+        t = threading.Thread(target=state_thread, args=[state])
         t.start()
         current_node = 0
+        with robot.turn_left(360) as move:
+            state.set_move_predictor(move)
+        turn_ready.set()
         scan_ready.wait()
         assert state.current_state().boxes, "No boxes found in scan! Can't plan!"
         while not stop_program.is_set():
