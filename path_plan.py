@@ -53,7 +53,7 @@ def initial_scan(
         prev_t = new_t
         turned = 360*(dif/full_dur)
         print(dif, turned, full_dur)
-        state.set_pos(turn=math.radians(turned))
+        state.set_pos(turn=math.radians(-turned))
         link.send(boxes, state.current_state(), plan)
 
         if turning.isSet():
