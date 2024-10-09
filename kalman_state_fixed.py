@@ -5,7 +5,8 @@ import time
 
 import numpy as np
 
-from box_types import Box, MovementAction, StateEstimate
+from box_types import Box, StateEstimate
+from movement_predictors import MovementPredictor, Stopped
 
 
 # State format: (2 + n_boxes * 2)
@@ -36,6 +37,7 @@ class KalmanStateFixed:
         self._lock = threading.Lock()
         self._movements = queue.Queue()
         self._angle = math.radians(90.0)
+        self._move: MovementPredictor = Stopped()
 
     def transform_known_boxes(self, boxes: list[Box]):
         assert len(boxes) > 0, "Must have at least one box"
@@ -62,8 +64,9 @@ class KalmanStateFixed:
                 % (math.pi * 2)
             )
         assert angle_estimates, "None of the angle boxes spotted!"
+
         angle = np.mean(angle_estimates)
-        # angle = angle_estimates[0]
+
         print(f"Angle is ~ {math.degrees(angle):.0f} degrees")
         rot_mat = self.rotation_matrix(angle)
         self._angle = (self._angle + angle) % (math.pi * 2)
@@ -75,19 +78,15 @@ class KalmanStateFixed:
 
         self._cur_mean = corrected_positions
 
-    def update_camera(
-        self, boxes: list[Box], timestamp: float = None, force_duration: float = None
-    ):
+    def update_camera(self, boxes: list[Box], timestamp: float):
         assert isinstance(boxes, list), f"Type! {boxes}"
-        if not boxes and timestamp is not None:
-            self.advance(timestamp)
+        if not boxes:
             return
 
         assert isinstance(boxes[0], Box), f"Type inner! {boxes[0]}"
         assert len(set(b.id for b in boxes)) == len(boxes), f"Duplicate: {boxes}"
         assert all(0 < b.id <= self._n_boxes for b in boxes), f"Strange ID: {boxes}"
         assert max(max(abs(b.x), abs(b.y)) for b in boxes) < 10_000, f"OOB: {boxes}"
-        assert (timestamp is None) + (force_duration is None) == 1, "Exactly one time"
 
         with self._lock:
             self._buf_measurement.fill(0)
@@ -107,15 +106,16 @@ class KalmanStateFixed:
             rot_mat = self.rotation_matrix(angle)
             measurements = self._buf_measurement.reshape((self._n_boxes, 2)) @ rot_mat
 
-            if timestamp is not None:
-                duration = timestamp - self._timestamp
-                assert (
-                    0 < duration < 5
-                ), f"Long duration! {timestamp}-{self._timestamp}={duration:.1f}"
-                self._timestamp = timestamp
-            else:
-                duration = force_duration
-                self._timestamp += force_duration
+            duration = timestamp - self._timestamp
+            assert (
+                0 < duration < 50
+            ), f"Long duration! {timestamp}-{self._timestamp}={duration:.1f}"
+
+            pred_move, pred_turn = self._move.predict(self._timestamp, timestamp)
+            self._angle += pred_turn
+            self._cur_mean[:2] += pred_move
+
+            self._timestamp = timestamp
 
             self._update_camera(measurements.flatten(), duration)
 
@@ -151,27 +151,12 @@ class KalmanStateFixed:
             self._buf_identity - gain @ self._measurement_mat
         ) @ pred_covar
 
-    def advance(self, timestamp: float):
-        assert timestamp > self._timestamp, "Timestamp has already passed!"
-        duration = timestamp - self._timestamp
-
-        self._timestamp = timestamp
-        sigma_x = self._transition_covar * duration
-
-        self._cur_mean = self._transition_mat @ self._cur_mean
-        self._cur_covar = (
-            self._transition_mat @ self._cur_covar @ self._transition_mat.T + sigma_x
-        )
-
-    def update_movement(self, move: MovementAction):
-        assert move.timestamp > self._timestamp, "Out of order move update!"
-        if move.speed > 0:
-            self._transition_covar = np.diag(
-                [500.0, 500.0] + [0.1] * (self._n_boxes * 2)
-            )
-        else:
-            self._transition_covar = np.diag([5.0, 5.0] + [0.1] * (self._n_boxes * 2))
-        # TODO
+    def set_move_predictor(self, move: MovementPredictor):
+        with self._lock:
+            pred_move, pred_turn = self._move.predict(self._timestamp, float("inf"))
+            self._angle += pred_turn
+            self._cur_mean[:2] += pred_move
+            self._move = move
 
     def current_state(self, permissible_variance: float = 200.0) -> StateEstimate:
         with self._lock:
@@ -187,29 +172,33 @@ class KalmanStateFixed:
                         )
                     )
 
-            return StateEstimate(Box(0, *self._cur_mean[:2]), boxes, self._angle)
+            exp_move, exp_turn = self._move.predict(self._timestamp, time.time())
+            pos = self._cur_mean[:2] + exp_move
+            return StateEstimate(Box(0, *pos), boxes, self._angle + exp_turn)
 
     def propose_movement(self, target: np.ndarray, pos: np.ndarray = None):
-        if pos is None:
-            pos = self._cur_mean[:2].flatten()
-        diff = target.flatten() - pos
-        target_angle = np.arctan2(diff[1], diff[0])
-        turn = target_angle - self._angle
-        print(f"Turning {turn}")
+        with self._lock:
+            if pos is None:
+                pos = self._cur_mean[:2].flatten()
+            diff = target.flatten() - pos
+            target_angle = np.arctan2(diff[1], diff[0])
+            turn = target_angle - self._angle
+            print(f"Turning {turn}")
 
-        dist = np.linalg.norm(diff)
-        return turn, dist
+            dist = np.linalg.norm(diff)
+            return turn, dist
 
     def set_pos(self, pos: np.ndarray = None, turn: float = None):
-        if pos is not None:
-            print("Hard setting position to ", pos)
-            print("Pre-set", self._cur_mean)
-            self._cur_mean[:2] = pos.flatten()
-            print("Post-set", self._cur_mean)
-            self._cur_covar[0, 0] = 20
-            self._cur_covar[1, 1] = 20
-        if turn is not None:
-            self._angle = (self._angle + turn) % (math.pi * 2)
+        with self._lock:
+            if pos is not None:
+                print("Hard setting position to ", pos)
+                print("Pre-set", self._cur_mean)
+                self._cur_mean[:2] = pos.flatten()
+                print("Post-set", self._cur_mean)
+                self._cur_covar[0, 0] = 20
+                self._cur_covar[1, 1] = 20
+            if turn is not None:
+                self._angle = (self._angle + turn) % (math.pi * 2)
 
 
 def main_test():

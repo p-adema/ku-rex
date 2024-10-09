@@ -36,17 +36,22 @@ class Robot:
         print("Shutting down the robot ...")
 
         time.sleep(0.05)
-        print(self.stop())
+        self.stop()
         time.sleep(0.1)
 
-        print(self.send_command("k\n"))
+        self.send_command("k\n")
         self.serial.close()
 
-    def send_command(self, cmd: str, sleep_ms: float = 0.0) -> bytes:
+    def send_command(
+        self, cmd: str, sleep_ms: float = 0.0, return_time: bool = False
+    ) -> bytes | float:
         """Sends a command to the Arduino robot controller"""
         self.serial.write(cmd.encode("ascii"))
-        time.sleep(sleep_ms)
+        if sleep_ms > 0:
+            time.sleep(sleep_ms)
         str_val = self.serial.readline()
+        if return_time:
+            return time.time()
         return str_val
 
     @staticmethod
@@ -75,14 +80,15 @@ class Robot:
         cmd = f"d{power_left:d},{power_right:d},{forward_left:d},{forward_right:d}\n"
         return self.send_command(cmd)
 
-    def go(self, left: int, right: int, t: float = 0.0):
+    def go(self, left: int, right: int, t: float = 0.0) -> float:
         assert self._valid_motor_power(abs(left)), f"Invalid value {left=}"
         assert self._valid_motor_power(abs(right)), f"Invalid value {right=}"
         cmd = (
             f"d{round(abs(left)):d},{round(abs(right)):d},{left > 0:d},{right > 0:d}\n"
         )
-        res = self.send_command(cmd)
-        time.sleep(t)
+        res = self.send_command(cmd, return_time=True)
+        if t > 0:
+            time.sleep(t)
         return res
 
     def stop(self) -> bytes:

@@ -1,17 +1,15 @@
 from __future__ import annotations
 
-import contextlib
 import math
 import threading
 import time
-from queue import Empty, Queue
 
 import numpy as np
 import picamera2
 
 import aruco_utils
 from aruco_utils import sample_markers
-from box_types import Box, MovementAction, dedup_camera
+from box_types import Box, dedup_camera
 from client_link import Link
 from constants import server_ip, server_port
 from kalman_state_fixed import KalmanStateFixed
@@ -59,6 +57,11 @@ def initial_scan(
         state.transform_known_boxes(known_boxes)
         print("Post-transform state", state.current_state())
 
+    img = cam.capture_array()
+    timestamp = time.time()
+    boxes = dedup_camera(sample_markers(img))
+    state.update_camera(boxes, timestamp=timestamp)
+
     link.send(boxes, state.current_state(), plan)
     input("Press enter to continue")
     # print("Scan complete, state", state.current_state())
@@ -66,7 +69,6 @@ def initial_scan(
 
 def state_thread(
     state: KalmanStateFixed,
-    movement_actions: Queue[MovementAction],
     robot: CalibratedRobot,
 ):
     try:
@@ -83,19 +85,14 @@ def state_thread(
                 print(f"State thread: {state.current_state()}")
                 img = cam.capture_array()
                 timestamp = time.time()
-                with contextlib.suppress(Empty):
-                    move = movement_actions.get(block=False)
-                    state.update_movement(move)
 
                 markers = sample_markers(img)
                 if not markers:
                     link.send([], state.current_state(), plan)
-                    link.empty()
-                    # state.advance(timestamp)
                     continue
                 boxes = dedup_camera(markers)
                 print(f"Found boxes! {timestamp}")
-                # state.update_camera(boxes, timestamp=timestamp)
+                state.update_camera(boxes, timestamp=timestamp)
 
                 est_state = state.current_state()
                 link.send(boxes, est_state, plan)
@@ -108,9 +105,8 @@ def state_thread(
 def main_thread():
     global plan
     state = KalmanStateFixed(n_boxes=9)
-    movement_actions: Queue[MovementAction] = Queue()
     with CalibratedRobot() as robot:
-        t = threading.Thread(target=state_thread, args=[state, movement_actions, robot])
+        t = threading.Thread(target=state_thread, args=[state, robot])
         t.start()
         current_node = 0
         scan_ready.wait()
@@ -118,27 +114,7 @@ def main_thread():
         while not stop_program.is_set():
             est_state = state.current_state()
 
-            if plan is not None:
-                # if np.linalg.norm(plan[current_node] - est_state.robot) < 100:
-                current_node += 1
-                if current_node == len(plan):
-                    print("Achieved goal!")
-                    break
-                else:
-                    angle, dist = state.propose_movement(
-                        plan[current_node], pos=plan[current_node - 1]
-                    )
-                    robot.turn(angle)
-                    print("Setting intermediate position")
-                    state.set_pos(pos=plan[current_node - 1], turn=angle)
-                    robot.go_forward(dist)
-                # else:
-                #     print(
-                #         f"Far away :( {est_state.robot=} {plan[current_node]=}",
-                #     )
-                #     pass
-            else:
-                movement_actions.put(MovementAction.moving(1))
+            if plan is None:
                 plan = RRT.generate_plan(
                     landmarks=est_state.boxes,
                     start=est_state.robot,
@@ -146,13 +122,30 @@ def main_thread():
                 )[::-1]
                 current_node = 1
                 print("plan:", plan)
-                angle, dist = state.propose_movement(plan[current_node], pos=plan[0])
+                angle, _dist = state.propose_movement(plan[current_node], pos=plan[0])
                 input("postplan.")
-                state.set_pos(pos=plan[0], turn=angle)
                 print("postplan-enter")
 
-                robot.turn(angle)
-                robot.go_forward(dist)
+                with robot.turn(angle) as move:
+                    state.set_move_predictor(move)
+
+                with robot.go_forward(plan[0], plan[1]) as move:
+                    state.set_move_predictor(move)
+                continue
+
+            current_node += 1
+            if current_node == len(plan):
+                print("Achieved goal!")
+                break
+
+            angle, _dist = state.propose_movement(
+                plan[current_node], pos=plan[current_node - 1]
+            )
+            with robot.turn(angle) as move:
+                state.set_move_predictor(move)
+
+            with robot.go_forward(plan[current_node - 1], plan[current_node]) as move:
+                state.set_move_predictor(move)
     stop_program.set()
     t.join()
 
