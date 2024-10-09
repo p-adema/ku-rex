@@ -58,12 +58,14 @@ class CalibratedRobot:
 
         start = self.arlo.go(-66, +64)
 
-        yield LinearTurn(theta_deg, start, sleep_dur)
+        yield LinearTurn(math.radians(theta_deg), start, sleep_dur)
 
         remaining = (start + sleep_dur) - time.time()
         if remaining > 0:
             time.sleep(remaining)
         self.arlo.stop()
+        final = time.time() - start - sleep_dur
+        print(f"Turn error {final:.4f}")
 
     @contextlib.contextmanager
     def turn_right(
@@ -76,12 +78,14 @@ class CalibratedRobot:
 
         start = self.arlo.go(+66, -64)
 
-        yield LinearTurn(-theta_deg, start, sleep_dur)
+        yield LinearTurn(-math.radians(theta_deg), start, sleep_dur)
 
         remaining = (start + sleep_dur) - time.time()
         if remaining > 0:
             time.sleep(remaining)
         self.arlo.stop()
+        final = time.time() - start - sleep_dur
+        print(f"Turn error {final:.4f}")
 
     def turn(
         self, theta_rad: float

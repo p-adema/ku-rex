@@ -45,13 +45,21 @@ class Box(NamedTuple):
 def dedup_camera(observed: list[CameraBox]) -> list[Box]:
     # Can be done better
     boxes_dup: dict[int, list[tuple]] = {}
+    # rot = np.empty((3, 3))
     for cbox in observed:
-        boxes_dup.setdefault(cbox.id, []).append((cbox.t_vec[0, 0], cbox.t_vec[2, 0]))
+        # cv2.Rodrigues(cbox.r_vec, dst=rot)
+        # angle = cv2.RQDecomp3x3(rot)[0][1]
+        boxes_dup.setdefault(cbox.id, []).append(
+            (
+                cbox.t_vec[0, 0],  # + 125 * np.cos(angle),
+                cbox.t_vec[2, 0],  # + 125 * np.sin(angle),
+            )
+        )
 
     boxes = []
     for name, coords in boxes_dup.items():
         x, y = np.array(coords).mean(0).astype(int)
-        # y += 200 // len(coords)
+        y -= 125 // len(coords)
         boxes.append(Box(name, x, y))
 
     return boxes

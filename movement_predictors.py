@@ -39,7 +39,7 @@ class LinearTurn:
         return self.angle * scale
 
     def predict(self, t1: float, t2: float) -> tuple[ndarray, float]:
-        return np.array([0, 0]), self._predict_1(t2) - self._predict_1(t1)
+        return np.array([0, 0]), (self._predict_1(t2) - self._predict_1(t1))
 
 
 class Stopped:

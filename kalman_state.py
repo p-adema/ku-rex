@@ -54,7 +54,7 @@ class KalmanState:
 
     def _update_camera(self, measurement: np.ndarray, duration: float):
         assert measurement.shape == (self._n_boxes * 2,), "Wrong measurement shape!"
-        assert 0 < duration < 5, f"Very long duration! ({duration:.2f})"
+        assert 0 < duration < 50, f"Very long duration! ({duration:.2f})"
 
         self._f_mat[1:, 0] = np.tile([0, -duration], self._n_boxes)
         sigma_x = self._sigma_x * duration

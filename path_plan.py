@@ -16,6 +16,14 @@ from kalman_state_fixed import KalmanStateFixed
 from move_calibrated import CalibratedRobot
 from rrt_landmarks import RRT, Node
 
+GOAL = Node(np.array([-600, 1_600]))
+
+KNOWN_BOXES = [
+    Box(id=3, x=0, y=0),
+    Box(id=6, x=-600, y=1_000),
+    # Box(id=1, x=300, y=2_400),
+]
+
 stop_program = threading.Event()
 scan_ready = threading.Event()
 
@@ -26,7 +34,6 @@ def initial_scan(
     cam: picamera2.Picamera2,
     state: KalmanStateFixed,
     robot: CalibratedRobot,
-    known_boxes: list[Box],
     link: Link,
     turn_circle: bool = True,
 ):
@@ -42,8 +49,8 @@ def initial_scan(
         #         np.linalg.norm(np.diag(state._cur_covar).reshape((-1, 2)), axis=1)
         #     ),
         # )
-        robot.scan_left()
-        state.set_pos(turn=math.radians(20))
+        with robot.turn(math.radians(20)) as move:
+            state.set_move_predictor(move)
         link.send(boxes, state.current_state(), plan)
         time.sleep(0.4)
     img = cam.capture_array()
@@ -51,10 +58,10 @@ def initial_scan(
     boxes = dedup_camera(sample_markers(img))
     print(f"{len(boxes)} found final scan")
     state.update_camera(boxes, timestamp=timestamp)
-    if known_boxes:
+    if KNOWN_BOXES:
         print("Pre-transform state", state.current_state())
         input("Press enter to transform")
-        state.transform_known_boxes(known_boxes)
+        state.transform_known_boxes(KNOWN_BOXES)
         print("Post-transform state", state.current_state())
 
     img = cam.capture_array()
@@ -74,12 +81,7 @@ def state_thread(
     try:
         with Link(server_ip, server_port) as link:
             cam = aruco_utils.get_camera_picamera()
-            known_boxes = [
-                Box(id=3, x=0, y=0),
-                Box(id=6, x=-460, y=0),
-                # Box(id=9, x=3_000, y=700),
-            ]
-            initial_scan(cam, state, robot, known_boxes, link, turn_circle=False)
+            initial_scan(cam, state, robot, link, turn_circle=True)
             scan_ready.set()
             while not stop_program.is_set():
                 print(f"State thread: {state.current_state()}")
@@ -92,7 +94,7 @@ def state_thread(
                     continue
                 boxes = dedup_camera(markers)
                 print(f"Found boxes! {timestamp}")
-                state.update_camera(boxes, timestamp=timestamp)
+                # state.update_camera(boxes, timestamp=timestamp)
 
                 est_state = state.current_state()
                 link.send(boxes, est_state, plan)
@@ -118,7 +120,7 @@ def main_thread():
                 plan = RRT.generate_plan(
                     landmarks=est_state.boxes,
                     start=est_state.robot,
-                    goal=Node(np.array([0, -500])),
+                    goal=GOAL,
                 )[::-1]
                 current_node = 1
                 print("plan:", plan)

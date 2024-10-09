@@ -7,10 +7,10 @@ img_height = 180
 server_ip = "192.168.217.159"
 server_port = 1808
 
-map_min_x = -5_000
-map_max_x = +5_000
+map_min_x = -1_500
+map_max_x = +1_500
 map_min_y = -5_000
-map_max_y = +5_000
+map_max_y = +2_500
 
 box_size = 200
 box_size_margin = box_size + 250

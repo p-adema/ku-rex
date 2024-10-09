@@ -130,7 +130,7 @@ class KalmanStateFixed:
 
     def _update_camera(self, measurement: np.ndarray, duration: float):
         assert measurement.shape == (self._n_boxes * 2,), "Wrong measurement shape!"
-        assert 0 < duration < 5, f"Very long duration! ({duration:.2f})"
+        assert 0 < duration < 50, f"Very long duration! ({duration:.2f})"
 
         partial_trans_covar = self._transition_covar * duration
 
