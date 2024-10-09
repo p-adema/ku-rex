@@ -39,7 +39,6 @@ def initial_scan(
     while True:
         img = cam.capture_array()
         new_t = time.time()
-        prev_t = new_t
         timestamp = time.time()
         boxes = dedup_camera(sample_markers(img))
         state.update_camera(boxes, timestamp=timestamp)
@@ -51,6 +50,7 @@ def initial_scan(
         #     ),
         # )
         dif = new_t - prev_t
+        prev_t = new_t
         turned = 360*(dif/full_dur)
         print(dif, turned, full_dur)
         state.set_pos(turn=math.radians(turned))
