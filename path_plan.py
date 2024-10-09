@@ -65,6 +65,8 @@ def initial_scan(
             state.update_camera(boxes, timestamp=timestamp)
             end_angle = state._angle
             l_turn = abs(end_angle - start_angle)
+            print(start_angle, end_angle)
+            print(l_turn)
             state.set_pos(turn=math.radians(-l_turn))
             link.send(boxes, state.current_state(), plan)
             print("break")
