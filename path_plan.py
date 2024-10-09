@@ -57,6 +57,7 @@ def initial_scan(
         link.send(boxes, state.current_state(), plan)
 
         if not turning.isSet():
+            print("break")
             break
 
     img = cam.capture_array()
