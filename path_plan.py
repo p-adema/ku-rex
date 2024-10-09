@@ -33,7 +33,7 @@ def initial_scan(
     start_t,
     turn_circle: bool = True
 ):  
-    full_dur = robot.turn_left(360, ret_dur=True)
+    full_dur = robot.turn_right(360, ret_dur=True)
     print("scan")
     prev_t = start_t
     while True:
@@ -130,7 +130,7 @@ def main_thread():
         t = threading.Thread(target=state_thread, args=[state, movement_actions, robot])
         t.start()
         time.sleep(0.04)
-        robot.turn_left(360)
+        robot.turn_right(360)
         turning.set()
         current_node = 0
         scan_ready.wait()
