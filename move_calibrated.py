@@ -5,7 +5,7 @@ import numpy as np
 
 import robot
 
-ROBOT_SPEED = 350  # millimeters per second 450
+ROBOT_SPEED = 430  # millimeters per second 450
 ROBOT_ROTATION = 0.0078  # seconds per degree 0.0078
 ROBOT_CAL_20 = 17.3
 left_speed = 66
@@ -42,7 +42,7 @@ class CalibratedRobot:
             sleep_dur = np.interp(theta_deg, arr_right_angles, arr_times)
         else:
             sleep_dur = 0.007970288435463647 * theta_deg - 0.044264287596813466
-        self.arlo.go(+left_speed, -right_speed, t=sleep_dur)
+        self.arlo.go(+66, -64, t=sleep_dur)
         self.arlo.stop()
 
     def turn_left(self, theta_deg: float):

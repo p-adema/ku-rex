@@ -2,10 +2,14 @@ from __future__ import annotations
 
 import cv2
 import numpy as np
-import picamera2
+
+try:
+    import picamera2
+except ModuleNotFoundError:
+    print("Skipping PiCamera")
 
 from box_types import CameraBox
-from constants import avg_focal, marker_size_mm
+from constants import avg_focal, img_height, img_width, marker_size_mm
 
 arucoDict = cv2.aruco.getPredefinedDictionary(cv2.aruco.DICT_6X6_250)
 arucoParams = cv2.aruco.DetectorParameters()
@@ -13,8 +17,8 @@ arucoParams.minDistanceToBorder = 0
 
 _cam_internal = np.array(
     [
-        [avg_focal, 0, 1280 // 2],
-        [0, avg_focal, 720 // 2],
+        [avg_focal, 0, img_width // 2],
+        [0, avg_focal, img_height // 2],
         [0, 0, 1],
     ]
 )
@@ -76,6 +80,7 @@ def get_camera_picamera(
     downscale: int = 4,
     exposure_time_ns=2_000,
     gain=40,
+    preview: bool = False,
 ) -> picamera2.Picamera2:
     cam = picamera2.Picamera2()
     frame_duration_limit = int(1 / fps * 1000000)  # Microseconds
@@ -87,12 +92,12 @@ def get_camera_picamera(
             "ExposureTime": exposure_time_ns,
             "AnalogueGain": gain,
         },
-        buffer_count=0,
+        buffer_count=1,
         queue=False,
     )
     cam.align_configuration(picam2_config)
     print("Camera size:", picam2_config["main"]["size"])
-    cam.start(picam2_config)
+    cam.start(picam2_config, show_preview=preview)
     return cam
 
 
@@ -113,6 +118,7 @@ def calc_turn_angle(t_vec: np.ndarray) -> float:
 def sample_markers(
     img: np.ndarray,
 ) -> list[CameraBox]:
+    assert len(img.shape) == 3
     corners, ids = detect_markers(img)
     res = []
     if ids is not None:

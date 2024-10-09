@@ -51,7 +51,7 @@ def dedup_camera(observed: list[CameraBox]) -> list[Box]:
     boxes = []
     for name, coords in boxes_dup.items():
         x, y = np.array(coords).mean(0).astype(int)
-        y += 200 // len(coords)
+        # y += 200 // len(coords)
         boxes.append(Box(name, x, y))
 
     return boxes

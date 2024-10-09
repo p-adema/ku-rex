@@ -24,15 +24,15 @@ scan_ready = threading.Event()
 plan = None
 
 
-def circular_scan(
+def initial_scan(
     cam: picamera2.Picamera2,
     state: KalmanStateFixed,
     robot: CalibratedRobot,
     known_boxes: list[Box],
     link: Link,
+    turn_circle: bool = True,
 ):
-    for _ in range(18):
-        print("Angle:", math.degrees(state._angle))
+    for _ in range(18 * turn_circle):
         img = cam.capture_array()
         timestamp = time.time()
         boxes = dedup_camera(sample_markers(img))
@@ -48,11 +48,10 @@ def circular_scan(
         state.set_pos(turn=math.radians(20))
         link.send(boxes, state.current_state(), plan)
         time.sleep(0.4)
-
     img = cam.capture_array()
     timestamp = time.time()
     boxes = dedup_camera(sample_markers(img))
-    # print(f"{len(boxes)} found final scan")
+    print(f"{len(boxes)} found final scan")
     state.update_camera(boxes, timestamp=timestamp)
     if known_boxes:
         print("Pre-transform state", state.current_state())
@@ -72,13 +71,13 @@ def state_thread(
 ):
     try:
         with Link(server_ip, server_port) as link:
-            cam = aruco_utils.get_camera_picamera(downscale=1)
+            cam = aruco_utils.get_camera_picamera()
             known_boxes = [
-                Box(id=9, x=0, y=0),
-                Box(id=8, x=3_000, y=0),
+                Box(id=3, x=0, y=0),
+                Box(id=6, x=-460, y=0),
                 # Box(id=9, x=3_000, y=700),
             ]
-            circular_scan(cam, state, robot, known_boxes, link)
+            initial_scan(cam, state, robot, known_boxes, link, turn_circle=False)
             scan_ready.set()
             while not stop_program.is_set():
                 print(f"State thread: {state.current_state()}")
@@ -95,12 +94,13 @@ def state_thread(
                     # state.advance(timestamp)
                     continue
                 boxes = dedup_camera(markers)
+                print(f"Found boxes! {timestamp}")
                 # state.update_camera(boxes, timestamp=timestamp)
 
                 est_state = state.current_state()
                 link.send(boxes, est_state, plan)
     finally:
-        print("State exitting!")
+        print("State exiting!")
         scan_ready.set()
         stop_program.set()
 
@@ -142,7 +142,7 @@ def main_thread():
                 plan = RRT.generate_plan(
                     landmarks=est_state.boxes,
                     start=est_state.robot,
-                    goal=Node(np.array([1_500, 0])),
+                    goal=Node(np.array([0, -500])),
                 )[::-1]
                 current_node = 1
                 print("plan:", plan)

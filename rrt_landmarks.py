@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import timeit
 
-import matplotlib.pyplot as plt
+# import matplotlib.pyplot as plt
 import numpy as np
 from matplotlib.animation import FFMpegWriter
 
@@ -142,28 +142,28 @@ class RRT:
                 )
             )
 
-    def draw_graph(self, rnd=None) -> None:
-        # # for stopping simulation with the esc key.
-        # plt.gcf().canvas.mpl_connect(
-        #     'key_release_event',
-        #     lambda event: [exit(0) if event.key == 'escape' else None])
-        plt.clf()
-        if rnd is not None:
-            plt.plot(rnd.pos[0], rnd.pos[1], "^k")
-
-        ax = plt.gca()
-        self.landmarks.draw_map(ax)
-
-        for node in self.node_list[1:]:
-            ax.plot(
-                (node.pos[0], node.parent.pos[0]),
-                (node.pos[1], node.parent.pos[1]),
-                "-g",
-            )
-
-        ax.plot(self.start.pos[0], self.start.pos[1], "xr")
-        ax.plot(self.end.pos[0], self.end.pos[1], "xr")
-        plt.pause(0.01)
+    # def draw_graph(self, rnd=None) -> None:
+    #     # # for stopping simulation with the esc key.
+    #     # plt.gcf().canvas.mpl_connect(
+    #     #     'key_release_event',
+    #     #     lambda event: [exit(0) if event.key == 'escape' else None])
+    #     plt.clf()
+    #     if rnd is not None:
+    #         plt.plot(rnd.pos[0], rnd.pos[1], "^k")
+    #
+    #     ax = plt.gca()
+    #     self.landmarks.draw_map(ax)
+    #
+    #     for node in self.node_list[1:]:
+    #         ax.plot(
+    #             (node.pos[0], node.parent.pos[0]),
+    #             (node.pos[1], node.parent.pos[1]),
+    #             "-g",
+    #         )
+    #
+    #     ax.plot(self.start.pos[0], self.start.pos[1], "xr")
+    #     ax.plot(self.end.pos[0], self.end.pos[1], "xr")
+    #     plt.pause(0.01)
 
     def get_nearest_node_index(self, rng_node: Node):
         return np.linalg.norm(
@@ -210,25 +210,25 @@ def main():
     # show_animation = False
     metadata = dict(title="RRT Test")
     writer = FFMpegWriter(fps=15, metadata=metadata)
-    fig = plt.figure()
+    # fig = plt.figure()
 
-    with writer.saving(fig, "rrt_test.mp4", 100):
-        # path = rrt.plan(animation=show_animation, writer=writer)
-        path = RRT.generate_plan(landmarks, goal)
+    # with writer.saving(fig, "rrt_test.mp4", 100):
+    # path = rrt.plan(animation=show_animation, writer=writer)
+    path = RRT.generate_plan(landmarks, goal)
 
-        if path is None:
-            print("Cannot find path")
-        else:
-            print("found path!!")
+    if path is None:
+        print("Cannot find path")
+    else:
+        print("found path!!")
 
-            # Draw final path
-            # if show_animation:
-            #     rrt.draw_graph()
-            #     plt.plot([x for (x, y) in path], [y for (x, y) in path], "-r")
-            #     plt.grid(True)
-            #     plt.pause(0.01)  # Need for Mac
-            #     plt.show()
-            #     writer.grab_frame()
+        # Draw final path
+        # if show_animation:
+        #     rrt.draw_graph()
+        #     plt.plot([x for (x, y) in path], [y for (x, y) in path], "-r")
+        #     plt.grid(True)
+        #     plt.pause(0.01)  # Need for Mac
+        #     plt.show()
+        #     writer.grab_frame()
     if path is not None:
         print("One run complete, doing timings...")
         n_runs = 100
