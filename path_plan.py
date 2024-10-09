@@ -36,6 +36,8 @@ def initial_scan(
     full_dur = robot.turn_right(360, ret_dur=True)
     print("scan")
     prev_t = start_t
+    start_angle = state._angle
+    print(start_angle)
     while True:
         img = cam.capture_array()
         new_t = time.time()
@@ -57,6 +59,14 @@ def initial_scan(
         link.send(boxes, state.current_state(), plan)
 
         if turning.isSet():
+            img = cam.capture_array()
+            timestamp = time.time()
+            boxes = dedup_camera(sample_markers(img))
+            state.update_camera(boxes, timestamp=timestamp)
+            end_angle = state._angle
+            l_turn = abs(end_angle - start_angle)
+            state.set_pos(turn=math.radians(-l_turn))
+            link.send(boxes, state.current_state(), plan)
             print("break")
             break
 
