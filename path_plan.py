@@ -20,9 +20,9 @@ from rrt_landmarks import RRT, Node
 
 stop_program = threading.Event()
 scan_ready = threading.Event()
+turning = threading.Event()
 
 plan = None
-
 
 def initial_scan(
     cam: picamera2.Picamera2,
@@ -30,10 +30,16 @@ def initial_scan(
     robot: CalibratedRobot,
     known_boxes: list[Box],
     link: Link,
-    turn_circle: bool = True,
-):
-    for _ in range(18 * turn_circle):
+    start_t,
+    turn_circle: bool = True
+):  
+    full_dur = robot.turn_left(360, ret_dur=True)
+    print("scan")
+    prev_t = start_t
+    while True:
         img = cam.capture_array()
+        new_t = time.time()
+        prev_t = new_t
         timestamp = time.time()
         boxes = dedup_camera(sample_markers(img))
         state.update_camera(boxes, timestamp=timestamp)
@@ -44,10 +50,15 @@ def initial_scan(
         #         np.linalg.norm(np.diag(state._cur_covar).reshape((-1, 2)), axis=1)
         #     ),
         # )
-        robot.scan_left()
-        state.set_pos(turn=math.radians(20))
+        dif = new_t - prev_t
+        turned = 360*(dif/full_dur)
+        print(dif, turned, full_dur)
+        state.set_pos(turn=math.radians(turned))
         link.send(boxes, state.current_state(), plan)
-        time.sleep(0.4)
+
+        if not turning.isSet():
+            break
+
     img = cam.capture_array()
     timestamp = time.time()
     boxes = dedup_camera(sample_markers(img))
@@ -70,14 +81,18 @@ def state_thread(
     robot: CalibratedRobot,
 ):
     try:
+        print("try")
         with Link(server_ip, server_port) as link:
+            print("try success")
             cam = aruco_utils.get_camera_picamera()
             known_boxes = [
                 Box(id=3, x=0, y=0),
                 Box(id=6, x=-460, y=0),
                 # Box(id=9, x=3_000, y=700),
             ]
-            initial_scan(cam, state, robot, known_boxes, link, turn_circle=False)
+            print("boxes, cam")
+            initial_scan(cam, state, robot, known_boxes, link, time.time(), turn_circle=False)
+            print("Initial Done")
             scan_ready.set()
             while not stop_program.is_set():
                 print(f"State thread: {state.current_state()}")
@@ -110,8 +125,12 @@ def main_thread():
     state = KalmanStateFixed(n_boxes=9)
     movement_actions: Queue[MovementAction] = Queue()
     with CalibratedRobot() as robot:
+        turning.clear()
         t = threading.Thread(target=state_thread, args=[state, movement_actions, robot])
         t.start()
+        time.sleep(0.04)
+        robot.turn_left(360)
+        turning.set()
         current_node = 0
         scan_ready.wait()
         assert state.current_state().boxes, "No boxes found in scan! Can't plan!"

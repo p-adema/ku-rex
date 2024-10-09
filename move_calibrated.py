@@ -7,7 +7,6 @@ import robot
 
 ROBOT_SPEED = 430  # millimeters per second 450
 ROBOT_ROTATION = 0.0078  # seconds per degree 0.0078
-ROBOT_CAL_20 = 17.3
 left_speed = 66
 right_speed = 63
 
@@ -37,25 +36,27 @@ class CalibratedRobot:
         time.sleep(sleep_dur)
         self.arlo.stop()
 
-    def turn_right(self, theta_deg: float):
+    def turn_right(self, theta_deg: float, ret_dur = False):
         if theta_deg < 30:
             sleep_dur = np.interp(theta_deg, arr_right_angles, arr_times)
         else:
             sleep_dur = 0.007970288435463647 * theta_deg - 0.044264287596813466
+
+        if ret_dur:
+            return sleep_dur
         self.arlo.go(+66, -64, t=sleep_dur)
         self.arlo.stop()
 
-    def turn_left(self, theta_deg: float):
+    def turn_left(self, theta_deg: float, ret_dur = False):
         if theta_deg < 30:
             sleep_dur = np.interp(theta_deg, arr_left_angles, arr_times)
         else:
             sleep_dur = 0.008031241606277339 * theta_deg - 0.0453796789728319
 
+        if ret_dur:
+            return sleep_dur
         self.arlo.go(-66, +64, t=sleep_dur)
         self.arlo.stop()
-
-    def scan_left(self):
-        self.turn_left(ROBOT_CAL_20)
 
     def turn(self, theta_rad: float):
         # Make sure we don't turn more than 180 degrees
