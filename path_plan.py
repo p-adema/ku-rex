@@ -57,17 +57,6 @@ def initial_scan(
         link.send(boxes, state.current_state(), plan)
 
         if turning.isSet():
-            img = cam.capture_array()
-            new_t = time.time()
-            timestamp = time.time()
-            boxes = dedup_camera(sample_markers(img))
-            state.update_camera(boxes, timestamp=timestamp)
-            dif = new_t - prev_t
-            prev_t = new_t
-            turned = 360*(dif/full_dur)
-            print(dif, turned, full_dur)
-            state.set_pos(turn=math.radians(turned))
-            link.send(boxes, state.current_state(), plan)
             print("break")
             break
 
