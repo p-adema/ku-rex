@@ -1,11 +1,11 @@
-import contextlib
 import math
 import time
 
 import numpy as np
 
 import robot
-from movement_predictors import LinearInterpolation, LinearTurn, MovementPredictor
+from kalman_state_fixed import KalmanStateFixed
+from movement_predictors import LinearInterpolation, LinearTurn
 
 ROBOT_SPEED = 430  # millimeters per second 450
 ROBOT_ROTATION = 0.0078  # seconds per degree 0.0078
@@ -32,45 +32,61 @@ class CalibratedRobot:
         self.arlo = robot.Robot()
         return self
 
-    @contextlib.contextmanager
     def go_forward(
-        self, start_pos: np.ndarray, end_pos: np.ndarray
-    ) -> contextlib.AbstractContextManager[MovementPredictor]:
+        self, start_pos: np.ndarray, end_pos: np.ndarray, state: KalmanStateFixed = None
+    ) -> None:
         dist = np.linalg.norm(end_pos - start_pos)
         sleep_dur = dist / ROBOT_SPEED
         start = self.arlo.go(+left_speed, +right_speed)
 
-        yield LinearInterpolation(start_pos, end_pos, start, sleep_dur)
+        if state is not None:
+            state.set_move_predictor(
+                LinearInterpolation(start_pos, end_pos, start, sleep_dur)
+            )
 
         remaining = (start + sleep_dur) - time.time()
         if remaining > 0:
             time.sleep(remaining)
         self.arlo.stop()
 
-    @contextlib.contextmanager
+    def prepare_left(self) -> float:
+        self.turn_right(30)
+        self.turn_left(45, stop=False)
+        return time.time()
+
     def turn_left(
-        self, theta_deg: float
-    ) -> contextlib.AbstractContextManager[MovementPredictor]:
+        self,
+        theta_deg: float,
+        state: KalmanStateFixed = None,
+        stop: bool = True,
+        actual_start: float = None,
+    ) -> None:
         if theta_deg < 30:
             sleep_dur = np.interp(theta_deg, arr_left_angles, arr_times)
         else:
             sleep_dur = 0.008031241606277339 * theta_deg - 0.0453796789728319
 
-        start = self.arlo.go(-66, +64)
+        if theta_deg == 360:
+            sleep_dur *= 1.03  # 1.015
 
-        yield LinearTurn(math.radians(theta_deg), start, sleep_dur)
+        start = self.arlo.go(-66, +64)
+        if actual_start is not None:
+            start = actual_start
+
+        if state is not None:
+            state.set_move_predictor(
+                LinearTurn(math.radians(theta_deg), start, sleep_dur)
+            )
 
         remaining = (start + sleep_dur) - time.time()
         if remaining > 0:
             time.sleep(remaining)
-        self.arlo.stop()
+        if stop:
+            self.arlo.stop()
         final = time.time() - start - sleep_dur
         print(f"Turn error {final:.4f}")
 
-    @contextlib.contextmanager
-    def turn_right(
-        self, theta_deg: float
-    ) -> contextlib.AbstractContextManager[MovementPredictor]:
+    def turn_right(self, theta_deg: float, state: KalmanStateFixed = None):
         if theta_deg < 30:
             sleep_dur = np.interp(theta_deg, arr_right_angles, arr_times)
         else:
@@ -78,7 +94,10 @@ class CalibratedRobot:
 
         start = self.arlo.go(+66, -64)
 
-        yield LinearTurn(-math.radians(theta_deg), start, sleep_dur)
+        if state is not None:
+            state.set_move_predictor(
+                LinearTurn(-math.radians(theta_deg), start, sleep_dur)
+            )
 
         remaining = (start + sleep_dur) - time.time()
         if remaining > 0:
@@ -87,16 +106,14 @@ class CalibratedRobot:
         final = time.time() - start - sleep_dur
         print(f"Turn error {final:.4f}")
 
-    def turn(
-        self, theta_rad: float
-    ) -> contextlib.AbstractContextManager[MovementPredictor]:
+    def turn(self, theta_rad: float, state: KalmanStateFixed = None):
         # Make sure we don't turn more than 180 degrees
         theta_deg = (math.degrees(theta_rad) + 540) % 360 - 180
         print(f"Turn {theta_rad=} {theta_deg=}")
         if theta_deg > 0:
-            return self.turn_left(theta_deg)
+            return self.turn_left(theta_deg, state=state)
         else:
-            return self.turn_right(-theta_deg)
+            return self.turn_right(-theta_deg, state=state)
 
     def stop(self):
         print("Stopping robot")

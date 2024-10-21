@@ -8,6 +8,7 @@ with move_calibrated.CalibratedRobot() as robot:
     #     pass
     # sys.exit(0)
     for _ in range(1):
-        with robot.turn_left(360):
-            pass
+        robot.turn_right(30)
+        robot.turn_left(45, stop=False)
+        robot.turn_left(360)
         time.sleep(0.3)

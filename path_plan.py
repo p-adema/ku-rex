@@ -15,12 +15,12 @@ from kalman_state_fixed import KalmanStateFixed
 from move_calibrated import CalibratedRobot
 from rrt_landmarks import RRT, Node
 
-GOAL = Node(np.array([-1_200, 0]))
+GOAL = Node(np.array([820, 1500]))
 
 KNOWN_BOXES = [
-    Box(id=3, x=0, y=0),
-    Box(id=6, x=-1_200, y=1_000),
-    # Box(id=1, x=300, y=2_400),
+    Box(id=4, x=0, y=0),
+    Box(id=1, x=1750, y=0),
+    Box(id=8, x=820, y=1980),
 ]
 
 stop_program = threading.Event()
@@ -34,22 +34,25 @@ def initial_scan(
     cam: picamera2.Picamera2,
     state: KalmanStateFixed,
     link: Link,
+    do_update: bool = True,
 ):
+    turn_ready.wait()
+    turn_ready.clear()
     while not turn_ready.is_set():
         img = cam.capture_array()
         timestamp = time.time()
         boxes = dedup_camera(sample_markers(img))
         state.update_camera(boxes, timestamp=timestamp)
         link.send(boxes, state.current_state(), plan)
-
+    turn_ready.clear()
     img = cam.capture_array()
     timestamp = time.time()
     boxes = dedup_camera(sample_markers(img))
     print(f"{len(boxes)} found final scan")
     state.update_camera(boxes, timestamp=timestamp)
-    if KNOWN_BOXES:
+    if KNOWN_BOXES and do_update:
         print("Pre-transform state", state.current_state())
-        input("Press enter to transform")
+        # input("Press enter to transform")
         state.transform_known_boxes(KNOWN_BOXES)
         print("Post-transform state", state.current_state())
 
@@ -59,7 +62,7 @@ def initial_scan(
     state.update_camera(boxes, timestamp=timestamp)
 
     link.send(boxes, state.current_state(), plan)
-    input("Press enter to continue")
+    # input("Press enter to continue")
     # print("Scan complete, state", state.current_state())
 
 
@@ -69,10 +72,15 @@ def state_thread(
     try:
         with Link(server_ip, server_port) as link:
             cam = aruco_utils.get_camera_picamera()
-            initial_scan(cam, state, link)
+            print("Scan 1")
+            initial_scan(cam, state, link, do_update=True)
+            print("Scan 2")
             scan_ready.set()
+            initial_scan(cam, state, link, do_update=False)
+            scan_ready.set()
+            print("Scan done!")
             while not stop_program.is_set():
-                print(f"State thread: {state.current_state()}")
+                # print(f"State thread: {state.current_state()}")
                 img = cam.capture_array()
                 timestamp = time.time()
 
@@ -99,31 +107,36 @@ def main_thread():
         t = threading.Thread(target=state_thread, args=[state])
         t.start()
         current_node = 0
-        with robot.turn_left(360) as move:
-            state.set_move_predictor(move)
-        turn_ready.set()
-        scan_ready.wait()
+        for _ in range(2):
+            timestamp = robot.prepare_left()
+            turn_ready.set()
+            robot.turn_left(360, state=state, actual_start=timestamp)
+            turn_ready.set()
+            scan_ready.wait()
+            scan_ready.clear()
         assert state.current_state().boxes, "No boxes found in scan! Can't plan!"
         while not stop_program.is_set():
             est_state = state.current_state()
 
             if plan is None:
-                plan = RRT.generate_plan(
+                plan_res = RRT.generate_plan(
                     landmarks=est_state.boxes,
                     start=est_state.robot,
                     goal=GOAL,
-                )[::-1]
+                    max_iter=2_000,
+                )
+                if plan_res is None:
+                    print("Couldn't find a plan!")
+                    break
+                plan = plan_res[::-1]
                 current_node = 1
                 print("plan:", plan)
                 angle, _dist = state.propose_movement(plan[current_node], pos=plan[0])
                 input("postplan.")
                 print("postplan-enter")
 
-                with robot.turn(angle) as move:
-                    state.set_move_predictor(move)
-
-                with robot.go_forward(plan[0], plan[1]) as move:
-                    state.set_move_predictor(move)
+                robot.turn(angle, state=state)
+                robot.go_forward(plan[0], plan[1], state=state)
                 continue
 
             current_node += 1
@@ -134,11 +147,9 @@ def main_thread():
             angle, _dist = state.propose_movement(
                 plan[current_node], pos=plan[current_node - 1]
             )
-            with robot.turn(angle) as move:
-                state.set_move_predictor(move)
+            robot.turn(angle, state=state)
+            robot.go_forward(plan[current_node - 1], plan[current_node], state=state)
 
-            with robot.go_forward(plan[current_node - 1], plan[current_node]) as move:
-                state.set_move_predictor(move)
     stop_program.set()
     t.join()
 
@@ -155,3 +166,4 @@ if __name__ == "__main__":
 
 # Centre one is important:  positive means right side,  negative means left side
 #                           straight on, approximately zero
+# t

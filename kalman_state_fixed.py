@@ -64,19 +64,32 @@ class KalmanStateFixed:
                 % (math.pi * 2)
             )
         assert angle_estimates, "None of the angle boxes spotted!"
+        print(f"{angle_estimates=}")
+        angle_estimates = np.array(angle_estimates)
+        if angle_estimates.min() < 1 or angle_estimates.max() > 5:
+            angle_estimates = (angle_estimates + np.pi) % (2 * np.pi)
+            print(f" updated {angle_estimates=}")
+            offset_pi = True
+        else:
+            offset_pi = False
 
         angle = np.mean(angle_estimates)
+        if offset_pi:
+            angle = (angle - np.pi) % (2 * np.pi)
 
         print(f"Angle is ~ {math.degrees(angle):.0f} degrees")
         rot_mat = self.rotation_matrix(angle)
         self._angle = (self._angle + angle) % (math.pi * 2)
-        corrected_positions = (positions @ rot_mat).flatten()
+        corrected_positions = positions @ rot_mat
         for box in missed_boxes:
             corrected_positions[box.id] = box.x, box.y
-            self._cur_covar[box.x * 2, box.x * 2] = 20
-            self._cur_covar[box.x * 2 + 1, box.x * 2 + 1] = 20
+            self._cur_covar[box.id * 2, box.id * 2] = 180
+            self._cur_covar[box.id * 2 + 1, box.id * 2 + 1] = 180
 
-        self._cur_mean = corrected_positions
+        self._cur_covar[0, 0] = 200
+        self._cur_covar[1, 1] = 200
+
+        self._cur_mean = corrected_positions.flatten()
 
     def update_camera(self, boxes: list[Box], timestamp: float):
         assert isinstance(boxes, list), f"Type! {boxes}"
@@ -93,7 +106,8 @@ class KalmanStateFixed:
             self._measurement_mat.fill(0)
 
             for box in boxes:
-                self._buf_measurement[(box.id - 1) * 2 : box.id * 2] = box
+                self._buf_measurement[(box.id - 1) * 2 : box.id * 2] = np.asarray(box)
+
                 self._buf_measurement[box.id * 2 - 1] -= 225
                 # Only valid measurements should be taken into account
                 self._measurement_mat[-2 + box.id * 2, box.id * 2] = 1
@@ -178,12 +192,13 @@ class KalmanStateFixed:
 
     def propose_movement(self, target: np.ndarray, pos: np.ndarray = None):
         with self._lock:
+            self._angle %= 2 * np.pi
             if pos is None:
                 pos = self._cur_mean[:2].flatten()
             diff = target.flatten() - pos
             target_angle = np.arctan2(diff[1], diff[0])
             turn = target_angle - self._angle
-            print(f"Turning {turn}")
+            print(f"Turning {turn} (from {self._angle} to {target_angle}, {diff})")
 
             dist = np.linalg.norm(diff)
             return turn, dist

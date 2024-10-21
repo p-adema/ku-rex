@@ -15,6 +15,9 @@ class CameraBox(NamedTuple):
 
 _box_fmt = "<Bdd"
 
+CORRECTION_DISTANCES = np.array([70, 198, 208, 270, 320, 540])
+CORRECTION_VALUES = np.array([1.72857, 1.29293, 1.22596, 1.19259, 1.16875, 1.088889])
+
 
 class Box(NamedTuple):
     id: int  # As shown on the box itself
@@ -58,7 +61,9 @@ def dedup_camera(observed: list[CameraBox]) -> list[Box]:
 
     boxes = []
     for name, coords in boxes_dup.items():
-        x, y = np.array(coords).mean(0).astype(int)
+        coords = np.asarray(coords).mean(0)
+        coords *= np.interp(coords[1], CORRECTION_DISTANCES, CORRECTION_VALUES)
+        x, y = coords.astype(int)
         y -= 125 // len(coords)
         boxes.append(Box(name, x, y))
 
