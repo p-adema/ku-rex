@@ -74,8 +74,9 @@ def state_thread(
         with Link(server_ip, server_port) as link:
             cam = aruco_utils.get_camera_picamera(downscale=1)
             known_boxes = [
-                Box(id=9, x=0, y=0),
-                Box(id=8, x=3_000, y=0),
+                Box(id=4, x=0, y=0),
+                Box(id=8, x=950, y=0),
+                Box(id=8, x=350, y=1200),
                 # Box(id=9, x=3_000, y=700),
             ]
             circular_scan(cam, state, robot, known_boxes, link)
@@ -142,7 +143,7 @@ def main_thread():
                 plan = RRT.generate_plan(
                     landmarks=est_state.boxes,
                     start=est_state.robot,
-                    goal=Node(np.array([1_500, 0])),
+                    goal=Node(np.array([350, 500])),
                 )[::-1]
                 current_node = 1
                 print("plan:", plan)
