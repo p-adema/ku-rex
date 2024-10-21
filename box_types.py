@@ -91,3 +91,7 @@ class Node:
 
     def distance_to(self, other: Node):
         return np.linalg.norm(other.pos - self.pos)
+
+    def __array__(self, dtype=None):
+        """Numpy interoperability"""
+        return self.pos

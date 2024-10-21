@@ -6,8 +6,8 @@ server_ip = "192.168.26.159"
 server_port = 1808
 
 
-map_min_x = -5_000
-map_max_x = +5_000
+map_min_x = -50
+map_max_x = +2_000
 map_min_y = -5_000
 map_max_y = +5_000
 

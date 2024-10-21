@@ -5,7 +5,7 @@ import robot
 
 ROBOT_SPEED = 350  # millimeters per second 450
 ROBOT_ROTATION = 0.0078  # seconds per degree 0.0078
-ROBOT_CAL_20 = 17.3
+ROBOT_CAL_20 = 20  # 17.3
 left_speed = 66
 right_speed = 63
 waitTime = 0.041

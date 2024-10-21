@@ -18,8 +18,17 @@ from kalman_state_fixed import KalmanStateFixed
 from move_calibrated import CalibratedRobot
 from rrt_landmarks import RRT, Node
 
+KNOWN_BOXES = [
+    Box(id=4, x=0, y=0),
+    Box(id=1, x=1950, y=0),
+    Box(id=8, x=820, y=1980),
+]
+
+GOAL = Node(np.array([820, 1000]))
+
 stop_program = threading.Event()
 scan_ready = threading.Event()
+do_scan = threading.Event()
 
 plan = None
 
@@ -56,12 +65,12 @@ def circular_scan(
     state.update_camera(boxes, timestamp=timestamp)
     if known_boxes:
         print("Pre-transform state", state.current_state())
-        input("Press enter to transform")
+        # input("Press enter to transform")
         state.transform_known_boxes(known_boxes)
         print("Post-transform state", state.current_state())
 
     link.send(boxes, state.current_state(), plan)
-    input("Press enter to continue")
+    # input("Press enter to continue")
     # print("Scan complete, state", state.current_state())
 
 
@@ -73,15 +82,13 @@ def state_thread(
     try:
         with Link(server_ip, server_port) as link:
             cam = aruco_utils.get_camera_picamera(downscale=1)
-            known_boxes = [
-                Box(id=4, x=0, y=0),
-                Box(id=8, x=950, y=0),
-                Box(id=8, x=350, y=1200),
-                # Box(id=9, x=3_000, y=700),
-            ]
-            circular_scan(cam, state, robot, known_boxes, link)
-            scan_ready.set()
             while not stop_program.is_set():
+                if do_scan.is_set():
+                    do_scan.clear()
+                    circular_scan(cam, state, robot, KNOWN_BOXES, link)
+                    KNOWN_BOXES.clear()  # hacky way of doing it once
+                    scan_ready.set()
+
                 print(f"State thread: {state.current_state()}")
                 img = cam.capture_array()
                 timestamp = time.time()
@@ -114,46 +121,31 @@ def main_thread():
         t = threading.Thread(target=state_thread, args=[state, movement_actions, robot])
         t.start()
         current_node = 0
-        scan_ready.wait()
-        assert state.current_state().boxes, "No boxes found in scan! Can't plan!"
         while not stop_program.is_set():
+            do_scan.set()
+            scan_ready.wait()
+            scan_ready.clear()
+            assert state.current_state().boxes, "No boxes found in scan! Can't plan!"
             est_state = state.current_state()
+            if np.linalg.norm(np.asarray(est_state.robot) - np.asarray(GOAL)) < 100:
+                print("Reached goal!")
+                break
 
-            if plan is not None:
-                # if np.linalg.norm(plan[current_node] - est_state.robot) < 100:
-                current_node += 1
-                if current_node == len(plan):
-                    print("Achieved goal!")
-                    break
-                else:
-                    angle, dist = state.propose_movement(
-                        plan[current_node], pos=plan[current_node - 1]
-                    )
-                    robot.turn(angle)
-                    print("Setting intermediate position")
-                    state.set_pos(pos=plan[current_node - 1], turn=angle)
-                    robot.go_forward(dist)
-                # else:
-                #     print(
-                #         f"Far away :( {est_state.robot=} {plan[current_node]=}",
-                #     )
-                #     pass
-            else:
-                movement_actions.put(MovementAction.moving(1))
-                plan = RRT.generate_plan(
-                    landmarks=est_state.boxes,
-                    start=est_state.robot,
-                    goal=Node(np.array([350, 500])),
-                )[::-1]
-                current_node = 1
-                print("plan:", plan)
-                angle, dist = state.propose_movement(plan[current_node], pos=plan[0])
-                input("postplan.")
-                state.set_pos(pos=plan[0], turn=angle)
-                print("postplan-enter")
+            movement_actions.put(MovementAction.moving(1))
+            plan = RRT.generate_plan(
+                landmarks=est_state.boxes,
+                start=est_state.robot,
+                goal=GOAL,
+            )[::-1]
+            current_node = 1
+            print("plan:", plan)
+            angle, dist = state.propose_movement(plan[current_node], pos=plan[0])
+            # input("postplan.")
+            state.set_pos(pos=plan[0], turn=angle)
+            print("postplan-enter")
 
-                robot.turn(angle)
-                robot.go_forward(dist)
+            robot.turn(angle)
+            robot.go_forward(dist)
     stop_program.set()
     t.join()
 

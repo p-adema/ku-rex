@@ -62,18 +62,27 @@ class KalmanStateFixed:
                 % (math.pi * 2)
             )
         assert angle_estimates, "None of the angle boxes spotted!"
+        angle_estimates = np.array(angle_estimates)
+        if angle_estimates.min() < 1:
+            angle_estimates += np.pi
+            angle_estimates %= 2 * np.pi
+            shift_pi = True
+        else:
+            shift_pi = False
         angle = np.mean(angle_estimates)
+        if shift_pi:
+            angle -= np.pi
         # angle = angle_estimates[0]
         print(f"Angle is ~ {math.degrees(angle):.0f} degrees")
         rot_mat = self.rotation_matrix(angle)
         self._angle = (self._angle + angle) % (math.pi * 2)
-        corrected_positions = (positions @ rot_mat).flatten()
+        corrected_positions = positions @ rot_mat
         for box in missed_boxes:
             corrected_positions[box.id] = box.x, box.y
             self._cur_covar[box.x * 2, box.x * 2] = 20
             self._cur_covar[box.x * 2 + 1, box.x * 2 + 1] = 20
 
-        self._cur_mean = corrected_positions
+        self._cur_mean = corrected_positions.flatten()
 
     def update_camera(
         self, boxes: list[Box], timestamp: float = None, force_duration: float = None
