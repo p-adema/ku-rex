@@ -64,7 +64,7 @@ def dedup_camera(observed: list[CameraBox]) -> list[Box]:
         coords = np.asarray(coords).mean(0)
         coords *= np.interp(coords[1], CORRECTION_DISTANCES, CORRECTION_VALUES)
         x, y = coords.astype(int)
-        y -= 125 // len(coords)
+        y -= 125 // len(coords) - 500
         boxes.append(Box(name, x, y))
 
     return boxes
