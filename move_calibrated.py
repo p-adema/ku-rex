@@ -1,4 +1,5 @@
 import math
+import threading
 import time
 
 import numpy as np
@@ -6,6 +7,8 @@ import numpy as np
 import robot
 from kalman_state_fixed import KalmanStateFixed
 from movement_predictors import LinearInterpolation, LinearTurn
+
+SLOW_CIRCLE_DUR = 5.5
 
 ROBOT_SPEED = 430  # millimeters per second 450
 ROBOT_ROTATION = 0.0078  # seconds per degree 0.0078
@@ -24,9 +27,12 @@ arr_right_angles = np.array(
 )
 
 
+DEBUG = True
+
+
 class CalibratedRobot:
     def __init__(self):
-        self.arlo = None
+        self.arlo: robot.Robot | None = None
 
     def __enter__(self):
         self.arlo = robot.Robot()
@@ -39,6 +45,9 @@ class CalibratedRobot:
         sleep_dur = dist / ROBOT_SPEED
         start = self.arlo.go(+left_speed, +right_speed)
 
+        if DEBUG:
+            print(f"Moving {dist}mm, sleeping {sleep_dur}")
+
         if state is not None:
             state.set_move_predictor(
                 LinearInterpolation(start_pos, end_pos, start, sleep_dur)
@@ -49,10 +58,14 @@ class CalibratedRobot:
             time.sleep(remaining)
         self.arlo.stop()
 
-    def prepare_left(self) -> float:
-        self.turn_right(30)
-        self.turn_left(45, stop=False)
-        return time.time()
+    def spin_left(self, *, state: KalmanStateFixed, event: threading.Event):
+        self.arlo.go(+42, -40, t=0.3)
+        start = self.arlo.go(-42, +40)
+        time.sleep(0.405)
+        state.set_move_predictor(LinearTurn(2 * np.pi, start, SLOW_CIRCLE_DUR))
+        event.set()
+        time.sleep((start + SLOW_CIRCLE_DUR) - time.time())
+        self.arlo.stop()
 
     def turn_left(
         self,
@@ -69,9 +82,15 @@ class CalibratedRobot:
         if theta_deg == 360:
             sleep_dur *= 1.03  # 1.015
 
+        if sleep_dur < 0.05:
+            return
+
         start = self.arlo.go(-66, +64)
         if actual_start is not None:
             start = actual_start
+
+        if DEBUG:
+            print(f"Turning {theta_deg} deg left, sleeping {sleep_dur}")
 
         if state is not None:
             state.set_move_predictor(
@@ -92,7 +111,13 @@ class CalibratedRobot:
         else:
             sleep_dur = 0.007970288435463647 * theta_deg - 0.044264287596813466
 
+        if sleep_dur < 0.05:
+            return
+
         start = self.arlo.go(+66, -64)
+
+        if DEBUG:
+            print(f"Turning {theta_deg} deg right, sleeping {sleep_dur}")
 
         if state is not None:
             state.set_move_predictor(
@@ -108,12 +133,12 @@ class CalibratedRobot:
 
     def turn(self, theta_rad: float, state: KalmanStateFixed = None):
         # Make sure we don't turn more than 180 degrees
-        theta_deg = (math.degrees(theta_rad) + 540) % 360 - 180
-        print(f"Turn {theta_rad=} {theta_deg=}")
-        if theta_deg > 0:
+        theta_deg = math.degrees(theta_rad) % 360
+        print(f"Turn {theta_rad=} {theta_deg=} (left)")
+        if theta_deg < 180:
             return self.turn_left(theta_deg, state=state)
         else:
-            return self.turn_right(-theta_deg, state=state)
+            return self.turn_right(360 - theta_deg, state=state)
 
     def stop(self):
         print("Stopping robot")

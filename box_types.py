@@ -15,8 +15,8 @@ class CameraBox(NamedTuple):
 
 _box_fmt = "<Bdd"
 
-CORRECTION_DISTANCES = np.array([70, 198, 208, 270, 320, 540])
-CORRECTION_VALUES = np.array([1.72857, 1.29293, 1.22596, 1.19259, 1.16875, 1.088889])
+OBSERVED_DISTANCES = np.array([0, 500, 962, 1445, 1937, 2441, 2976, 3400, 3966, 10_000])
+TRUE_DISTANCES = np.array([0, 500, 1000, 1500, 2000, 2500, 3000, 3500, 4000, 10_000])
 
 
 class Box(NamedTuple):
@@ -52,19 +52,25 @@ def dedup_camera(observed: list[CameraBox]) -> list[Box]:
     for cbox in observed:
         # cv2.Rodrigues(cbox.r_vec, dst=rot)
         # angle = cv2.RQDecomp3x3(rot)[0][1]
+        # print(angle)
         boxes_dup.setdefault(cbox.id, []).append(
             (
-                cbox.t_vec[0, 0],  # + 125 * np.cos(angle),
-                cbox.t_vec[2, 0],  # + 125 * np.sin(angle),
+                cbox.t_vec[0, 0] + 125,  # * np.cos(angle),
+                cbox.t_vec[2, 0] + 125,  # * np.sin(angle),
             )
         )
 
     boxes = []
     for name, coords in boxes_dup.items():
         coords = np.asarray(coords).mean(0)
-        coords *= np.interp(coords[1], CORRECTION_DISTANCES, CORRECTION_VALUES)
-        x, y = coords.astype(int)
-        y -= 125 // len(coords) - 500
+        x, y = (
+            np.interp(np.abs(coords), OBSERVED_DISTANCES, TRUE_DISTANCES)
+            * np.sign(coords)
+        ).astype(int)
+        if len(coords) == 1:
+            y += 125
+        else:
+            y += 60
         boxes.append(Box(name, x, y))
 
     return boxes

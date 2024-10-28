@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import math
 import queue
 import threading
@@ -17,7 +19,7 @@ class KalmanStateFixed:
     def __init__(self, n_boxes: int = 4):
         self._n_boxes = n_boxes
         self._transition_mat = np.identity(2 + n_boxes * 2, dtype=float)
-        self._transition_covar = np.diag([5.0, 5.0] + [0.1] * (n_boxes * 2))
+        self._transition_covar = np.diag([5.0, 5.0] + [0] * (n_boxes * 2))
 
         # We are certain that we start at (0, 0), facing forwards
         # We are very uncertain about the location of the boxes
@@ -38,8 +40,27 @@ class KalmanStateFixed:
         self._movements = queue.Queue()
         self._angle = math.radians(90.0)
         self._move: MovementPredictor = Stopped()
+        self._known_boxes: list[Box] | None = None
 
-    def transform_known_boxes(self, boxes: list[Box]):
+    def transform_known_boxes(self, boxes: list[Box]) -> bool:
+        with self._lock:
+            success, angle, positions = self.estimate_known_transform(boxes)
+            if success is not None:
+                return success
+
+            rot_mat = self.rotation_matrix(angle)
+            self._angle = (self._angle + angle) % (math.pi * 2)
+            self._cur_mean = (positions @ rot_mat).flatten()
+            self.force_known_positions(boxes)
+            self._known_boxes = boxes
+
+            self._cur_covar[0, 0] = 200
+            self._cur_covar[1, 1] = 200
+            return True
+
+    def estimate_known_transform(
+        self, boxes
+    ) -> tuple[bool | None, float | None, np.ndarray | None]:
         assert len(boxes) > 0, "Must have at least one box"
         root_box, *turn_boxes = boxes
         assert root_box.x == 0 and root_box.y == 0, "Root box (first) should be origin"
@@ -49,9 +70,6 @@ class KalmanStateFixed:
             (1, 2)
         )
         positions = self._cur_mean.reshape((-1, 2)) + translation
-        if not turn_boxes:
-            return
-
         angle_estimates = []
         missed_boxes = []
         for box in turn_boxes:
@@ -72,26 +90,47 @@ class KalmanStateFixed:
             offset_pi = True
         else:
             offset_pi = False
-
+        if angle_estimates.max() - angle_estimates.min() > 1:
+            return False, None, None
         angle = np.mean(angle_estimates)
         if offset_pi:
             angle = (angle - np.pi) % (2 * np.pi)
-
         print(f"Angle is ~ {math.degrees(angle):.0f} degrees")
-        rot_mat = self.rotation_matrix(angle)
-        self._angle = (self._angle + angle) % (math.pi * 2)
-        corrected_positions = positions @ rot_mat
-        for box in missed_boxes:
-            corrected_positions[box.id] = box.x, box.y
-            self._cur_covar[box.id * 2, box.id * 2] = 180
-            self._cur_covar[box.id * 2 + 1, box.id * 2 + 1] = 180
+        return None, angle, positions
 
-        self._cur_covar[0, 0] = 200
-        self._cur_covar[1, 1] = 200
+    def project_goal(self, goal: np.ndarray, known_boxes=None) -> np.ndarray | None:
+        with self._lock:
+            if known_boxes is not None:
+                self._known_boxes = known_boxes
 
-        self._cur_mean = corrected_positions.flatten()
+            if self._known_boxes is None:
+                return goal
 
-    def update_camera(self, boxes: list[Box], timestamp: float):
+            success, angle, positions = self.estimate_known_transform(self._known_boxes)
+            if success is not None:
+                return None
+
+            translation = positions[0].flatten() - self._cur_mean[:2].flatten()
+            rot_mat = self.rotation_matrix(-angle)
+            new_goal = (
+                goal.reshape((1, 2)) - translation.reshape((1, 2)) @ rot_mat
+            ).flatten()
+            print(f"Goal {goal} is moved to {new_goal} ({translation=}, {angle=})")
+            return new_goal
+
+    def force_box_uncertainty(self, std_dev: float = 100.0):
+        new_diag = np.clip(np.diag(self._cur_covar), std_dev, None)
+        new_diag[:2] = 0
+        np.fill_diagonal(self._cur_covar, new_diag)
+
+    def force_known_positions(self, boxes: list[Box]):
+        positions = self._cur_mean.reshape((-1, 2))
+        for box in boxes:
+            positions[box.id] = np.asarray(box)
+            self._cur_covar[box.id * 2, box.id * 2] = 0
+            self._cur_covar[box.id * 2 + 1, box.id * 2 + 1] = 0
+
+    def update_camera(self, boxes: list[Box], timestamp: float, skip_fix: bool = False):
         assert isinstance(boxes, list), f"Type! {boxes}"
         if not boxes:
             return
@@ -119,6 +158,7 @@ class KalmanStateFixed:
 
             rot_mat = self.rotation_matrix(angle)
             measurements = self._buf_measurement.reshape((self._n_boxes, 2)) @ rot_mat
+            # print(np.diag(self._cur_covar).reshape((-1, 2)).mean(1))
 
             duration = timestamp - self._timestamp
             assert (
@@ -130,8 +170,13 @@ class KalmanStateFixed:
             self._cur_mean[:2] += pred_move
 
             self._timestamp = timestamp
+            # if self._known_boxes is not None and not skip_fix:
+            #     self.transform_known_boxes(self._known_boxes)
 
             self._update_camera(measurements.flatten(), duration)
+
+            # if self._known_boxes is not None:
+            #     self.force_known_positions(self._known_boxes)
 
     @staticmethod
     def rotation_matrix(angle):
@@ -169,6 +214,7 @@ class KalmanStateFixed:
         with self._lock:
             pred_move, pred_turn = self._move.predict(self._timestamp, float("inf"))
             self._angle += pred_turn
+            self._angle %= np.pi * 2
             self._cur_mean[:2] += pred_move
             self._move = move
 
@@ -190,15 +236,20 @@ class KalmanStateFixed:
             pos = self._cur_mean[:2] + exp_move
             return StateEstimate(Box(0, *pos), boxes, self._angle + exp_turn)
 
-    def propose_movement(self, target: np.ndarray, pos: np.ndarray = None):
+    def propose_movement(self, target: np.ndarray):
         with self._lock:
-            self._angle %= 2 * np.pi
-            if pos is None:
-                pos = self._cur_mean[:2].flatten()
+            print(f"Propose movement: {self._angle=}")
+            pos = self._cur_mean[:2].flatten()
+            # if angle is None:
+            #     angle = self._angle
             diff = target.flatten() - pos
-            target_angle = np.arctan2(diff[1], diff[0])
+            target_angle = np.arctan2(diff[1], diff[0]) % (np.pi * 2)
             turn = target_angle - self._angle
-            print(f"Turning {turn} (from {self._angle} to {target_angle}, {diff})")
+            print(
+                f"Turning {turn}, {math.degrees(turn)}"
+                f" (from {math.degrees(self._angle)} to {math.degrees(target_angle)},"
+                f" {diff})"
+            )
 
             dist = np.linalg.norm(diff)
             return turn, dist

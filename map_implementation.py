@@ -20,21 +20,43 @@ class DrawExtent(NamedTuple):
 
 
 class LandmarkMap:
-    def __init__(self, landmarks: list[Box], draw_extent: DrawExtent):
+    def __init__(
+        self,
+        landmarks: list[Box],
+        draw_extent: DrawExtent,
+        changed_radia: dict[int, float],
+    ):
+        assert landmarks, "No landmarks?"
         self._landmarks = landmarks
-        self._coords: np.ndarray = np.array([[box.x, box.y] for box in landmarks])
-        self._extent = draw_extent
+        self._distances = np.repeat(box_size_margin, len(landmarks))
+        coords = []
+        for i, box in enumerate(landmarks):
+            coords.append(np.array([box.x, box.y]))
+            if box.id in changed_radia:
+                self._distances[i] = changed_radia[box.id]
 
-    def in_collision(self, a: Node, b: Node):
-        a, b = a.pos, b.pos
+        self._coords: np.ndarray = np.array(coords)
+        assert self._coords.shape == (len(landmarks), 2), f"Weird {self._coords.shape=}"
+        self._extent = draw_extent
+        self._changed_radia = changed_radia
+
+    def in_collision(
+        self,
+        a: np.ndarray,
+        b: np.ndarray,
+        relaxed: bool = False,
+    ) -> bool:
+        if relaxed:
+            return self._relaxed_in_collision(a, b)
+
         a_close = (
-            np.linalg.norm(self._coords - a.reshape((1, 2)), axis=1) < box_size_margin
+            np.linalg.norm(self._coords - a.reshape((1, 2)), axis=1) < self._distances
         )
         if np.any(a_close):
             return True
 
         b_close = (
-            np.linalg.norm(self._coords - b.reshape((1, 2)), axis=1) < box_size_margin
+            np.linalg.norm(self._coords - b.reshape((1, 2)), axis=1) < self._distances
         )
         if np.any(b_close):
             return True
@@ -46,9 +68,51 @@ class LandmarkMap:
         proj = proj_weight * direction.reshape((1, 2))
         proj_dist = np.linalg.norm(coords - proj, axis=1)
         proj_close = np.where(
-            within_line.reshape((-1, 1)), proj_dist < box_size_margin, False
+            within_line.reshape((-1, 1)), proj_dist < self._distances, False
         )
         return np.any(proj_close)
+
+    def point_close(self, a: Node) -> bool:
+        a_close = (
+            np.linalg.norm(self._coords - a.reshape((1, 2)), axis=1) < self._distances
+        )
+        return np.any(a_close)
+
+    def _relaxed_in_collision(self, a: np.ndarray, b: np.ndarray) -> bool:
+        close_boxes_mask = (
+            np.linalg.norm(self._coords - a.reshape((1, 2)), axis=1) < self._distances
+        ).astype(bool)
+        if not np.any(close_boxes_mask):
+            print("Relaxed collision ignored")
+            self.in_collision(a, b, relaxed=False)
+
+        close_boxes = self._coords[close_boxes_mask]
+        print(f"Relaxed collision with {len(close_boxes)=}")
+
+        direction = b - a
+        coords = close_boxes - a.reshape((1, 2))
+        proj_weight = coords @ direction.reshape((2, 1)) / np.dot(direction, direction)
+        if np.any(proj_weight > 0):
+            within_line = (proj_weight > 0) & (proj_weight < 1)
+            proj = proj_weight * direction.reshape((1, 2))
+            proj_dist = np.linalg.norm(coords - proj, axis=1)
+            proj_close = np.where(
+                within_line.reshape((-1, 1)),
+                proj_dist < self._distances - 100,
+                False,
+            )
+            if np.any(proj_close):
+                return True
+
+        far_map = LandmarkMap(
+            [box for close, box in zip(close_boxes_mask, self._landmarks) if not close],
+            self._extent,
+            self._changed_radia,
+        )
+        return far_map.in_collision(a, b)
+
+    def push_back(self, a: Node, b: Node) -> Node:
+        pass
 
     def draw_map(self, axes: plt.Axes):
         axes.clear()
@@ -74,11 +138,13 @@ if __name__ == "__main__":
     # plt.clf()
     # map.draw_map()
     # plt.show()
-    lm = LandmarkMap([Box(id=1, x=200, y=200)], draw_extent=DrawExtent())
+    lm = LandmarkMap(
+        [Box(id=1, x=200, y=200)], draw_extent=DrawExtent(), changed_radia={}
+    )
     print(
         lm.in_collision(
-            Node(np.array([0.0, -400])),
-            Node(np.array([100.0, 100])),
+            np.array([0.0, -400]),
+            np.array([100.0, 100]),
         )
     )
     lm.draw_map(plt.gca())

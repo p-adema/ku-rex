@@ -33,6 +33,7 @@ class Observation(NamedTuple):
     state: list[Box]
     visible: set[int]
     path: np.ndarray
+    goal: np.ndarray
     angle: float
 
 
@@ -50,15 +51,17 @@ def parse_msg(msg: bytes) -> tuple[bool, list[Observation]]:
             continue
 
         cam_b, state_path = update.split(b"!state")
-        angle_state_b, path_b = state_path.split(b"!path")
+        angle_state_b, path__goal_b = state_path.split(b"!path")
+        path_b, goal_b = path__goal_b.split(b"!goal")
 
         cam = Box.unpack_multi(cam_b)
         angle = struct.unpack("<d", angle_state_b[:8])[0]
         state = Box.unpack_multi(angle_state_b[8:])
         path = np.array(struct.unpack(f"<{len(path_b) // 8}d", path_b)).reshape((-1, 2))
+        goal = np.array(struct.unpack("<dd", goal_b))
         visible = {box.id for box in cam}
 
-        updates.append(Observation(cam, state, visible, path, angle))
+        updates.append(Observation(cam, state, visible, path, goal, angle))
 
     return closed, updates
 
@@ -121,7 +124,7 @@ def axes_state(ax_state: plt.Axes, update: Observation):
             )
             ax_state.text(box.x - 70, box.y - 70, str(box.id), ma="center")
         else:
-            print("angle", math.degrees(update.angle))
+            # print("angle", math.degrees(update.angle))
             rot_mat = np.array(
                 [
                     [math.cos(update.angle), math.sin(-update.angle)],
@@ -132,6 +135,7 @@ def axes_state(ax_state: plt.Axes, update: Observation):
             ax_state.scatter(camera_pos[0], camera_pos[1], marker="o", c="red", s=10)
             ax_state.add_artist(Circle((box.x, box.y), 225, fill=True, color="black"))
     ax_state.plot(update.path[:, 0], update.path[:, 1])
+    ax_state.scatter(update.goal[0], update.goal[1], s=20, marker="x", c="red")
 
 
 def main():

@@ -22,7 +22,7 @@ class Link:
     def empty(self):
         self.s.send(b"!empty!end")
 
-    def send(self, boxes: list[Box], est_state: StateEstimate, plan: np.ndarray | None):
+    def send(self, boxes: list[Box], est_state: StateEstimate, plan: np.ndarray | None, goal: np.ndarray):
         msg = []
         for box in boxes:
             msg.append(box.pack())
@@ -41,6 +41,8 @@ class Link:
             path_flat = plan.flatten()
             msg.append(struct.pack(f"<{len(path_flat)}d", *path_flat))
 
+        msg.append(b"!goal")
+        msg.append(struct.pack('<dd', goal[0], goal[1]))
         msg.append(b"!end")
         self.s.send(b"".join(msg))
         msg.clear()
