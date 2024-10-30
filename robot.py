@@ -91,11 +91,11 @@ class Robot:
             time.sleep(t)
         return res
 
-    def stop(self) -> bytes:
+    def stop(self) -> float:
         """Send a stop command to stop motors.
         Sets the motor power on both wheels to zero.
         This does NOT use wheel encoders."""
-        return self.send_command("s\n")
+        return self.send_command("s\n", return_time=True)
 
     def read_sensor(self, sensor_id: int) -> int | None:
         """Send a read sensor command with sensor_id and return sensor value.

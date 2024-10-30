@@ -85,7 +85,7 @@ class LandmarkMap:
         )
         return np.any(a_close)
 
-    def push_back(self, a: Node) -> np.ndarray | None:
+    def push_back(self, a: Node, margin: int = 100) -> np.ndarray | None:
         a = a.pos
         close_boxes_mask = (
             np.linalg.norm(self._coords - a.reshape((1, 2)), axis=1) < self._distances
@@ -96,7 +96,7 @@ class LandmarkMap:
         close_box_idx = close_boxes_mask[0]
         direction = a.reshape((1, 2)) - self._coords[close_box_idx].reshape((1, 2))
         direction /= np.linalg.norm(direction)
-        step_back = direction * (self._distances[close_box_idx] + 100)
+        step_back = direction * (self._distances[close_box_idx] + margin)
         res = (a + step_back).flatten()
         assert len(res) == 2
         return res

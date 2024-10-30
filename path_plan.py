@@ -25,17 +25,21 @@ CURRENT_PLAN = None
 KNOWN_BOXES = [
     Box(id=1, x=0, y=0),
     Box(id=2, x=0, y=2_790),
+    # Box(id=3, x=1_920, y=2_450),
     Box(id=4, x=1_920, y=2_450),
 ]
 N_START_SCANS = 1
 SKIP_BOX_MEASUREMENTS = set(range(1, 10))
+SONAR_PREP_TARGET = None
 
 stop_program = threading.Event()
 turn_ready = threading.Event()
 scan_ready = threading.Event()
+cancel_spin = threading.Event()
 
 turn_barrier = threading.Barrier(2)
 re_scan_barrier = threading.Barrier(2)
+sonar_prep_barrier = threading.Barrier(2)
 
 
 def circular_scan(
@@ -45,6 +49,7 @@ def circular_scan(
     do_update: bool = True,
     ignore_far: bool = True,
 ) -> bool:
+    print(f"{ignore_far=}")
     state.force_box_uncertainty()
     turn_ready.wait(timeout=5)
     turn_ready.clear()
@@ -122,13 +127,48 @@ def state_thread(
                         continue
                     SKIP_BOX_MEASUREMENTS = set(range(1, 10))
                     need_rescan = not circular_scan(
-                        cam, state, link, do_update=True, ignore_far=ignore_far
+                        cam,
+                        state,
+                        link,
+                        do_update=True,
+                        ignore_far=False,  # ignore_far or state.known_badness() > 350,
                     )
-                    ignore_far = False  # adjust here
+                    ignore_far = True
                     SKIP_BOX_MEASUREMENTS = set(range(1, 10))
                     scan_ready.set()
                     if need_rescan:
                         print("WARNING: re-scan failed, box positions seem to be wrong")
+
+                if sonar_prep_barrier.n_waiting:
+                    assert SONAR_PREP_TARGET is not None
+                    sonar_prep_barrier.wait()
+                    turn_ready.wait(timeout=5)
+                    done = False
+                    while not done:
+                        img = cam.capture_array()
+                        timestamp = time.time()
+
+                        markers = sample_markers(img)
+                        print(f"Found markers! {timestamp=} {markers}")
+                        if not markers:
+                            link.send(
+                                [],
+                                state.current_state(),
+                                None,
+                                CURRENT_GOAL.pos,
+                            )
+                            continue
+                        elif any(marker.id == SONAR_PREP_TARGET for marker in markers):
+                            print("Found sonar target!")
+                            cancel_spin.set()
+                            done = True
+
+                        boxes = dedup_camera(markers, skip=SKIP_BOX_MEASUREMENTS)
+                        state.update_camera(boxes, timestamp=timestamp)
+
+                        est_state = state.current_state()
+                        link.send(boxes, est_state, CURRENT_PLAN, CURRENT_GOAL.pos)
+                    continue
 
                 img = cam.capture_array()
                 timestamp = time.time()
@@ -150,13 +190,18 @@ def state_thread(
         stop_program.set()
 
 
-def path_plan(robot, state, original_goal, changed_radia: dict[int, float] = None):
+def path_plan(
+    robot: CalibratedRobot,
+    state: KalmanStateFixed,
+    original_goal: Node,
+    changed_radia: dict[int, float] = None,
+):
     global CURRENT_PLAN, CURRENT_GOAL
     if changed_radia is None:
         changed_radia = {}
     CURRENT_GOAL = original_goal
     last_scan_time = time.time()
-    goal_update_time = last_scan_time
+    # goal_update_time = last_scan_time
     old_expected_idx = None
     need_rescan = True
     plan_iters = 2_000
@@ -180,7 +225,7 @@ def path_plan(robot, state, original_goal, changed_radia: dict[int, float] = Non
             #     print("Can't update goal, asking for rescan (within rescan)")
             #     continue
             # CURRENT_GOAL = Node(updated_goal)
-            last_scan_time = goal_update_time = time.time()
+            last_scan_time = time.time()
 
         # if time.time() - goal_update_time > GOAL_UPDATE_INTERVAL:
         #     updated_goal = state.project_goal(original_goal.pos)
@@ -230,8 +275,34 @@ def path_plan(robot, state, original_goal, changed_radia: dict[int, float] = Non
     CURRENT_PLAN = None
 
 
-def sonar_approach():
-    pass
+def sonar_approach(robot: CalibratedRobot, state: KalmanStateFixed, goal: Box):
+    global SONAR_PREP_TARGET
+    turn_barrier.wait()
+    angle, _dist = state.propose_movement(np.asarray(goal))
+    input("Entering sonar approach")
+
+    # Overturn to be to the right of the box
+    robot.turn(angle - 20, state=state)
+    SONAR_PREP_TARGET = goal.id
+    turn_barrier.wait()
+    input("Pre-spin")
+    sonar_prep_barrier.wait(timeout=5)
+    robot.spin_left(state=state, event=turn_ready, cancel=cancel_spin)
+
+    turn_barrier.wait(timeout=5)
+    # input("Post-spin")
+    # angle, _dist = state.propose_movement(np.asarray(goal))
+    robot.turn(-10, state=state)
+    input("Pre-seek")
+    moved = robot.seek_forward(target_dist=200, max_dist=2_500)
+    if moved == 0:
+        print("Failed to seek forwards!")
+    input(f"Post-seek ({moved})")
+    robot.turn(np.pi, state=state)
+    robot.go_forward(np.array([0, 0]), np.array([0, moved]))
+    turn_barrier.wait(timeout=5)
+    input("Done")
+    SONAR_PREP_TARGET = None
 
 
 def main_thread():
@@ -248,7 +319,7 @@ def main_thread():
 
         # assert state.current_state().boxes, "No boxes found in scan! Can't plan!"
         # time.sleep(0.5)
-        in_front = np.array([0, -300])
+        in_front = np.array([0, -350])
         avoid_boxes = {box.id: 1_000 for box in KNOWN_BOXES}
         for box in KNOWN_BOXES:
             print(f"Visiting {box}")
@@ -256,8 +327,9 @@ def main_thread():
                 robot,
                 state,
                 Node(np.asarray(box) + in_front),
-                changed_radia=avoid_boxes | {box.id: 250.0},
+                changed_radia=avoid_boxes | {box.id: 300.0},
             )
+            # sonar_approach(robot, state, box)
 
     stop_program.set()
     t.join()

@@ -169,13 +169,13 @@ class KalmanStateFixed:
                 rot_box = box_arr @ rot_mat
                 if (
                     ignore_far
-                    and (np.linalg.norm(positions[box.id] - rot_box) > 600)
-                    and (np.mean(uncertainties[box.id]) < 200)
+                    and (np.linalg.norm(positions[box.id] - rot_box) > 8000)
+                    and (np.mean(uncertainties[box.id]) < 100)
                 ):
                     print(f"Skipping box {box.id}, would have been at {rot_box}")
                     continue
 
-                self._buf_measurement[(box.id - 1) * 2 : box.id * 2] = np.asarray(box)
+                self._buf_measurement[(box.id - 1) * 2 : box.id * 2] = rot_box
                 # Only valid measurements should be taken into account
                 self._measurement_mat[-2 + box.id * 2, box.id * 2] = 1
                 self._measurement_mat[-1 + box.id * 2, 1 + box.id * 2] = 1
@@ -236,9 +236,11 @@ class KalmanStateFixed:
             self._buf_identity - gain @ self._measurement_mat
         ) @ pred_covar
 
-    def set_move_predictor(self, move: MovementPredictor):
+    def set_move_predictor(
+        self, move: MovementPredictor, cancelled_at: float = float("inf")
+    ):
         with self._lock:
-            pred_move, pred_turn = self._move.predict(self._timestamp, float("inf"))
+            pred_move, pred_turn = self._move.predict(self._timestamp, cancelled_at)
             self._angle += pred_turn
             self._angle %= np.pi * 2
             self._cur_mean[:2] += pred_move

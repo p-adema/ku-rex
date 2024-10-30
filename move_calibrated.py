@@ -6,7 +6,7 @@ import numpy as np
 
 import robot
 from kalman_state_fixed import KalmanStateFixed
-from movement_predictors import LinearInterpolation, LinearTurn
+from movement_predictors import LinearInterpolation, LinearTurn, Stopped
 
 SLOW_CIRCLE_DUR = 5.5
 
@@ -58,14 +58,24 @@ class CalibratedRobot:
             time.sleep(remaining)
         self.arlo.stop()
 
-    def spin_left(self, *, state: KalmanStateFixed, event: threading.Event):
+    def spin_left(
+        self,
+        *,
+        state: KalmanStateFixed,
+        event: threading.Event,
+        cancel: threading.Event = None,
+    ):
         self.arlo.go(+42, -40, t=0.3)
         start = self.arlo.go(-42, +40)
         time.sleep(0.405)
         state.set_move_predictor(LinearTurn(2 * np.pi, start, SLOW_CIRCLE_DUR))
         event.set()
-        time.sleep((start + SLOW_CIRCLE_DUR) - time.time())
-        self.arlo.stop()
+        if cancel is None:
+            time.sleep((start + SLOW_CIRCLE_DUR) - time.time())
+        else:
+            cancel.wait(timeout=(start + SLOW_CIRCLE_DUR) - time.time())
+        stop_time = self.arlo.stop()
+        state.set_move_predictor(Stopped(), cancelled_at=stop_time)
 
     def turn_left(
         self,
@@ -143,6 +153,25 @@ class CalibratedRobot:
     def stop(self):
         print("Stopping robot")
         self.arlo.stop()
+
+
+    def seek_forward(self, target_dist: float, max_dist: float) -> int:
+        initial_dist = side_dist = front_dist = self.arlo.read_front_ping_sensor()
+        if front_dist > max_dist:
+            print(f"Seek failed, distance {front_dist} > {max_dist}")
+            return 0
+        self.arlo.go(+44, +42)
+        looking_left = True
+        while (front_dist > target_dist + 10) and side_dist > 75:
+            front_dist = self.arlo.read_front_ping_sensor()
+            if looking_left:
+                side_dist = self.arlo.read_left_ping_sensor()
+            else:
+                side_dist = self.arlo.read_right_ping_sensor()
+            looking_left = not looking_left
+
+        self.arlo.stop()
+        return initial_dist - self.arlo.read_front_ping_sensor()
 
     def __exit__(self, exc_type, exc_val, exc_tb):
         self.arlo.stop()

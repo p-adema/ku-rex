@@ -9,7 +9,7 @@ server_port = 1809
 
 map_min_x = -500
 map_max_x = +2_500
-map_min_y = -2_040
+map_min_y = -1_500
 map_max_y = +4_000
 
 box_size = 200

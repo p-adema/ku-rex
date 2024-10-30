@@ -44,6 +44,10 @@ class RRT:
         self.end = goal
         self.landmarks = landmarks
 
+        if self.landmarks.point_close(goal):
+            pushed = self.landmarks.push_back(goal, margin=30)
+            self.end = Node(pushed)
+
         self.extend_length = expand_dis
         self.goal_sample_rate = goal_sample_rate
         self.max_iter = max_iter
