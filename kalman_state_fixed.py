@@ -159,7 +159,19 @@ class KalmanStateFixed:
         with self._lock:
             self._buf_measurement.fill(0)
             self._measurement_mat.fill(0)
-            angle = self._angle - math.radians(90)
+            pred_move, pred_turn = self._move.predict(self._timestamp, timestamp)
+
+            duration = timestamp - self._timestamp
+            assert (
+                0 < duration < 50
+            ), f"Long duration! {timestamp}-{self._timestamp}={duration:.1f}"
+            _, part_turn = self._move.predict(
+                self._timestamp, max(timestamp - 0.02, self._timestamp)
+            )
+            angle = self._angle + pred_turn - math.radians(90)  # can also be part_turn
+            self._angle += pred_turn
+            self._cur_mean[:2] += pred_move
+            self._timestamp = timestamp
 
             rot_mat = self.rotation_matrix(angle)
             positions = self._cur_mean.reshape((-1, 2))
@@ -169,7 +181,7 @@ class KalmanStateFixed:
                 rot_box = box_arr @ rot_mat
                 if (
                     ignore_far
-                    and (np.linalg.norm(positions[box.id] - rot_box) > 8000)
+                    and (np.linalg.norm(positions[box.id] - rot_box) > 1200)
                     and (np.mean(uncertainties[box.id]) < 100)
                 ):
                     print(f"Skipping box {box.id}, would have been at {rot_box}")
@@ -186,16 +198,6 @@ class KalmanStateFixed:
             print()
             # print(np.diag(self._cur_covar).reshape((-1, 2)).mean(1))
 
-            duration = timestamp - self._timestamp
-            assert (
-                0 < duration < 50
-            ), f"Long duration! {timestamp}-{self._timestamp}={duration:.1f}"
-
-            pred_move, pred_turn = self._move.predict(self._timestamp, timestamp)
-            self._angle += pred_turn
-            self._cur_mean[:2] += pred_move
-
-            self._timestamp = timestamp
             # if self._known_boxes is not None and not skip_fix:
             #     self.transform_known_boxes(self._known_boxes)
 
