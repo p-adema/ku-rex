@@ -45,8 +45,10 @@ class Box(NamedTuple):
         return np.array((self.x, self.y), dtype=dtype).__array__()
 
 
-def dedup_camera(observed: list[CameraBox]) -> list[Box]:
+def dedup_camera(observed: list[CameraBox], skip: set[int] = None) -> list[Box]:
     # Can be done better
+    if skip is None:
+        skip = set()
     boxes_dup: dict[int, list[tuple]] = {}
     # rot = np.empty((3, 3))
     for cbox in observed:
@@ -71,6 +73,12 @@ def dedup_camera(observed: list[CameraBox]) -> list[Box]:
             y += 125
         else:
             y += 60
+        if y > 5_000:
+            continue
+        if name in skip:
+            skip.remove(name)
+            continue
+
         boxes.append(Box(name, x, y))
 
     return boxes

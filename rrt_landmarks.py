@@ -104,10 +104,17 @@ class RRT:
         """
         self.node_list = [self.start]
 
+        if self.landmarks.point_close(self.start):
+            pushed_node = Node(self.landmarks.push_back(self.start), parent=self.start)
+            if self.check_collision_free(pushed_node):
+                self.pos_array[len(self.node_list)] = pushed_node.pos
+                self.node_list.append(pushed_node)
+
         if self.old_plan is not None:
             fixed_old_plan = self.integrate_old_plan(self.old_plan)
             if fixed_old_plan is not None:
-                print(f"Old plan is still valid ({fixed_old_plan=})")
+                if PLAN_DEBUG:
+                    print(f"Old plan is still valid ({fixed_old_plan=})")
                 return fixed_old_plan
 
         for _ in range(self.max_iter):
@@ -130,8 +137,8 @@ class RRT:
                 self.draw_graph(rng_node)
                 if writer is not None:
                     writer.grab_frame()
-
-        print("Warning: no plan!")
+        if PLAN_DEBUG:
+            print("Warning: no plan!")
         return None  # cannot find path
 
     def steer(self, from_node: Node, to_node: Node) -> Node:
@@ -158,14 +165,16 @@ class RRT:
         path.append(node.pos)
         path_arr = np.round(np.array(path))
         if self.clip_first:
-            print("Checking clip...", end="")
+            if PLAN_DEBUG:
+                print("Checking clip...", end="")
             direction = path_arr[-2] - path_arr[-1]
             norm = np.linalg.norm(direction)
             if norm > self.clip_first:
                 waypoint = path_arr[-1] + direction / norm * self.clip_first
                 path_arr = np.vstack((path_arr[:-1], waypoint, path_arr[-1]))
-                print(f" {norm}, clipped to {waypoint=}")
-            else:
+                if PLAN_DEBUG:
+                    print(f" {norm}, clipped to {waypoint=}")
+            elif PLAN_DEBUG:
                 print(f" no clip necessary, distance {norm}")
         return path_arr
 

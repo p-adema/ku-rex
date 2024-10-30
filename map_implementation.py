@@ -2,6 +2,8 @@
 Module for interfacing a 2D Map in the form of Grid Occupancy
 """
 
+from __future__ import annotations
+
 from typing import NamedTuple
 
 import matplotlib.pyplot as plt
@@ -35,7 +37,7 @@ class LandmarkMap:
             if box.id in changed_radia:
                 self._distances[i] = changed_radia[box.id]
 
-        self._coords: np.ndarray = np.array(coords)
+        self._coords: np.ndarray = np.array(coords).reshape((-1, 2))
         assert self._coords.shape == (len(landmarks), 2), f"Weird {self._coords.shape=}"
         self._extent = draw_extent
         self._changed_radia = changed_radia
@@ -63,7 +65,11 @@ class LandmarkMap:
 
         direction = b - a
         coords = self._coords - a.reshape((1, 2))
-        proj_weight = coords @ direction.reshape((2, 1)) / np.dot(direction, direction)
+        proj_weight = (
+            coords
+            @ direction.reshape((2, 1))
+            / np.dot(direction.flatten(), direction.flatten())
+        )
         within_line = (proj_weight > 0) & (proj_weight < 1)
         proj = proj_weight * direction.reshape((1, 2))
         proj_dist = np.linalg.norm(coords - proj, axis=1)
@@ -73,25 +79,46 @@ class LandmarkMap:
         return np.any(proj_close)
 
     def point_close(self, a: Node) -> bool:
+        a = a.pos
         a_close = (
             np.linalg.norm(self._coords - a.reshape((1, 2)), axis=1) < self._distances
         )
         return np.any(a_close)
+
+    def push_back(self, a: Node) -> np.ndarray | None:
+        a = a.pos
+        close_boxes_mask = (
+            np.linalg.norm(self._coords - a.reshape((1, 2)), axis=1) < self._distances
+        ).nonzero()
+        if len(close_boxes_mask) != 1:
+            return None
+
+        close_box_idx = close_boxes_mask[0]
+        direction = a.reshape((1, 2)) - self._coords[close_box_idx].reshape((1, 2))
+        direction /= np.linalg.norm(direction)
+        step_back = direction * (self._distances[close_box_idx] + 100)
+        res = (a + step_back).flatten()
+        assert len(res) == 2
+        return res
 
     def _relaxed_in_collision(self, a: np.ndarray, b: np.ndarray) -> bool:
         close_boxes_mask = (
             np.linalg.norm(self._coords - a.reshape((1, 2)), axis=1) < self._distances
         ).astype(bool)
         if not np.any(close_boxes_mask):
-            print("Relaxed collision ignored")
+            # print("Relaxed collision ignored")
             self.in_collision(a, b, relaxed=False)
 
         close_boxes = self._coords[close_boxes_mask]
-        print(f"Relaxed collision with {len(close_boxes)=}")
+        # print(f"Relaxed collision with {len(close_boxes)=}")
 
         direction = b - a
         coords = close_boxes - a.reshape((1, 2))
-        proj_weight = coords @ direction.reshape((2, 1)) / np.dot(direction, direction)
+        proj_weight = (
+            coords
+            @ direction.reshape((2, 1))
+            / np.dot(direction.flatten(), direction.flatten())
+        )
         if np.any(proj_weight > 0):
             within_line = (proj_weight > 0) & (proj_weight < 1)
             proj = proj_weight * direction.reshape((1, 2))
@@ -110,9 +137,6 @@ class LandmarkMap:
             self._changed_radia,
         )
         return far_map.in_collision(a, b)
-
-    def push_back(self, a: Node, b: Node) -> Node:
-        pass
 
     def draw_map(self, axes: plt.Axes):
         axes.clear()

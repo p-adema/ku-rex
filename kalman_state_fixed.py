@@ -31,7 +31,7 @@ class KalmanStateFixed:
         self._measurement_mat = np.zeros((n_boxes * 2, 2 + n_boxes * 2))
         # (Measurement) x (Measurement) covariance matrix.
         # We're fairly certain about the camera measurements
-        self._measurement_covar = np.diag(np.repeat(20, n_boxes * 2))
+        self._measurement_covar = np.diag(np.repeat(100, n_boxes * 2))
 
         self._buf_identity = np.identity(2 + self._n_boxes * 2)
         self._buf_measurement = np.zeros((self._n_boxes * 2,))
@@ -118,6 +118,20 @@ class KalmanStateFixed:
             print(f"Goal {goal} is moved to {new_goal} ({translation=}, {angle=})")
             return new_goal
 
+    def known_badness(self) -> float:
+        if self._known_boxes is None:
+            return 0.0
+        error = []
+        with self._lock:
+            for box in self._known_boxes:
+                error.append(
+                    np.linalg.norm(
+                        self._cur_mean[box.id * 2 : (box.id + 1) * 2] - np.asarray(box)
+                    )
+                )
+
+        return np.mean(error)
+
     def force_box_uncertainty(self, std_dev: float = 100.0):
         new_diag = np.clip(np.diag(self._cur_covar), std_dev, None)
         new_diag[:2] = 0
@@ -130,7 +144,9 @@ class KalmanStateFixed:
             self._cur_covar[box.id * 2, box.id * 2] = 0
             self._cur_covar[box.id * 2 + 1, box.id * 2 + 1] = 0
 
-    def update_camera(self, boxes: list[Box], timestamp: float, skip_fix: bool = False):
+    def update_camera(
+        self, boxes: list[Box], timestamp: float, ignore_far: bool = True
+    ):
         assert isinstance(boxes, list), f"Type! {boxes}"
         if not boxes:
             return
@@ -143,21 +159,31 @@ class KalmanStateFixed:
         with self._lock:
             self._buf_measurement.fill(0)
             self._measurement_mat.fill(0)
+            angle = self._angle - math.radians(90)
 
+            rot_mat = self.rotation_matrix(angle)
+            positions = self._cur_mean.reshape((-1, 2))
+            uncertainties = self._cur_covar.reshape((-1, 2))
             for box in boxes:
-                self._buf_measurement[(box.id - 1) * 2 : box.id * 2] = np.asarray(box)
+                box_arr = np.array([box.x, box.y - 225]).reshape((1, 2))
+                rot_box = box_arr @ rot_mat
+                if (
+                    ignore_far
+                    and (np.linalg.norm(positions[box.id] - rot_box) > 600)
+                    and (np.mean(uncertainties[box.id]) < 200)
+                ):
+                    print(f"Skipping box {box.id}, would have been at {rot_box}")
+                    continue
 
-                self._buf_measurement[box.id * 2 - 1] -= 225
+                self._buf_measurement[(box.id - 1) * 2 : box.id * 2] = np.asarray(box)
                 # Only valid measurements should be taken into account
                 self._measurement_mat[-2 + box.id * 2, box.id * 2] = 1
                 self._measurement_mat[-1 + box.id * 2, 1 + box.id * 2] = 1
                 self._measurement_mat[-2 + box.id * 2, 0] = -1
                 self._measurement_mat[-1 + box.id * 2, 1] = -1
 
-            angle = self._angle - math.radians(90)
-
-            rot_mat = self.rotation_matrix(angle)
-            measurements = self._buf_measurement.reshape((self._n_boxes, 2)) @ rot_mat
+            print(f"{self._measurement_mat.nonzero()=}")
+            print()
             # print(np.diag(self._cur_covar).reshape((-1, 2)).mean(1))
 
             duration = timestamp - self._timestamp
@@ -173,7 +199,7 @@ class KalmanStateFixed:
             # if self._known_boxes is not None and not skip_fix:
             #     self.transform_known_boxes(self._known_boxes)
 
-            self._update_camera(measurements.flatten(), duration)
+            self._update_camera(self._buf_measurement, duration)
 
             # if self._known_boxes is not None:
             #     self.force_known_positions(self._known_boxes)
