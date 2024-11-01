@@ -119,9 +119,8 @@ def state_thread(
                             turn_barrier.reset()
                             if stop_program.is_set():
                                 break
-                        except:
+                        finally:
                             print("Was waiting at turn_barrier!")
-                            raise
 
                 if re_scan_barrier.n_waiting or need_rescan:
                     while True:
@@ -132,9 +131,8 @@ def state_thread(
                             re_scan_barrier.reset()
                             if turn_barrier.n_waiting or stop_program.is_set():
                                 break
-                        except:
+                        finally:
                             print("Was waiting at re_scan_barrier!")
-                            raise
 
                     if turn_barrier.n_waiting or stop_program.is_set():
                         continue
@@ -234,6 +232,7 @@ def state_thread(
 
                 img = cam.capture_array()
                 timestamp = time.time()
+                print(end=".")
 
                 markers = sample_markers(img)
                 if not markers:
