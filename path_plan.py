@@ -183,7 +183,7 @@ def state_thread(
                         est_state = state.current_state()
                         link.send(boxes, est_state, CURRENT_PLAN, CURRENT_GOAL.pos)
 
-                    if cancel_spin:
+                    if cancel_spin.is_set():
                         continue
 
                     sonar_prep_barrier.wait(timeout=1)
