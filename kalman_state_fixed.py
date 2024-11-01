@@ -62,31 +62,28 @@ class KalmanStateFixed:
         self, boxes
     ) -> tuple[bool | None, float | None, np.ndarray | None]:
         assert len(boxes) > 0, "Must have at least one box"
-        root_box, *turn_boxes = boxes
-        assert root_box.x == 0 and root_box.y == 0, "Root box (first) should be origin"
         variance = np.diag(self._cur_covar).reshape((-1, 2)).mean(1)
-        assert variance[root_box.id] < 200, "Root box must be spotted"
-        translation = -self._cur_mean[root_box.id * 2 : root_box.id * 2 + 2].reshape(
-            (1, 2)
-        )
+        spotted_boxes = [box for box in boxes if variance[box.id] < 200]
+        assert spotted_boxes, "No boxes spotted!"
+        expected_com = np.zeros((1, 2))
+        true_com = np.zeros((1, 2))
+        current_pos = self._cur_mean.reshape((-1, 2))
+        for box in spotted_boxes:
+            expected_com += np.asarray(box)
+            true_com += current_pos[box.id]
+
+        translation = (expected_com - true_com) / len(spotted_boxes)
         positions = self._cur_mean.reshape((-1, 2)) + translation
         angle_estimates = []
-        missed_boxes = []
-        for box in turn_boxes:
-            if variance[box.id] > 200:
-                missed_boxes.append(box)
-                continue
+        for box in spotted_boxes:
             box_current = positions[box.id]
             angle_estimates.append(
                 (np.arctan2(box.y, box.x) - np.arctan2(box_current[1], box_current[0]))
                 % (math.pi * 2)
             )
-        assert angle_estimates, "None of the angle boxes spotted!"
-        print(f"{angle_estimates=}")
         angle_estimates = np.array(angle_estimates)
         if angle_estimates.min() < 1 or angle_estimates.max() > 5:
             angle_estimates = (angle_estimates + np.pi) % (2 * np.pi)
-            print(f" updated {angle_estimates=}")
             offset_pi = True
         else:
             offset_pi = False
@@ -95,7 +92,7 @@ class KalmanStateFixed:
         angle = np.mean(angle_estimates)
         if offset_pi:
             angle = (angle - np.pi) % (2 * np.pi)
-        print(f"Angle is ~ {math.degrees(angle):.0f} degrees")
+        print(f"Angle is ~ {math.degrees(angle):.0f} degrees ({angle_estimates=})")
         return None, angle, positions
 
     def project_goal(self, goal: np.ndarray, known_boxes=None) -> np.ndarray | None:
@@ -181,7 +178,7 @@ class KalmanStateFixed:
                 rot_box = box_arr @ rot_mat
                 if (
                     ignore_far
-                    and (np.linalg.norm(positions[box.id] - rot_box) > 1200)
+                    and (np.linalg.norm(positions[box.id] - rot_box) > 2500)
                     and (np.mean(uncertainties[box.id]) < 100)
                 ):
                     print(f"Skipping box {box.id}, would have been at {rot_box}")
@@ -194,8 +191,8 @@ class KalmanStateFixed:
                 self._measurement_mat[-2 + box.id * 2, 0] = -1
                 self._measurement_mat[-1 + box.id * 2, 1] = -1
 
-            print(f"{self._measurement_mat.nonzero()=}")
-            print()
+            # print(f"{self._measurement_mat.nonzero()=}")
+            # print()
             # print(np.diag(self._cur_covar).reshape((-1, 2)).mean(1))
 
             # if self._known_boxes is not None and not skip_fix:
