@@ -33,13 +33,14 @@ KNOWN_BOXES = [
 ]
 N_START_SCANS = 1
 SKIP_BOX_MEASUREMENTS = set(range(1, 10))
-SONAR_ROBOT_HACK: CalibratedRobot | bool | None = None
+SONAR_ROBOT_HACK: CalibratedRobot | None = None
 
 stop_program = threading.Event()
 turn_ready = threading.Event()
 scan_ready = threading.Event()
 cancel_spin = threading.Event()
 target_line_of_sight = threading.Event()
+sonar_aligned = threading.Event()
 
 turn_barrier = threading.Barrier(2)
 re_scan_barrier = threading.Barrier(2)
@@ -189,8 +190,8 @@ def state_thread(
                     assert SONAR_ROBOT_HACK is not None
                     last_turn = math.radians(5)
                     deadline = time.time() + 6
-                    success = False
-                    while time.time() < deadline:
+                    sonar_aligned.clear()
+                    while time.time() < deadline and not sonar_aligned.is_set():
                         img = cam.capture_array()
                         boxes = dedup_camera(sample_markers(img))
                         target: Box | None = next(
@@ -200,18 +201,17 @@ def state_thread(
                             SONAR_ROBOT_HACK.turn(-last_turn, state=state)
                             continue
                         if target.x < 1:
-                            success = True
+                            sonar_aligned.set()
                             break
                         angle = math.radians(90) - math.atan(target.y / abs(target.x))
                         if angle < math.radians(4):
-                            success = True
+                            sonar_aligned.set()
                             break
 
                         if target.x > 0:
                             SONAR_ROBOT_HACK.turn(0.9 * angle, state=state)
                         else:
                             SONAR_ROBOT_HACK.turn(-0.9 * angle, state=state)
-                    SONAR_ROBOT_HACK = success
                     sonar_prep_barrier.wait(timeout=5)
 
                 img = cam.capture_array()
@@ -336,8 +336,8 @@ def sonar_approach(robot: CalibratedRobot, state: KalmanStateFixed, goal: Box):
         return False
     # input("Post-spin")
     sonar_prep_barrier.wait(timeout=10)  # Other thread is done with aligning
-    assert isinstance(SONAR_ROBOT_HACK, bool), "err"
-    if not SONAR_ROBOT_HACK:
+    if not sonar_aligned.is_set():
+        print("Sonar alignment failed :(")
         return False
     SONAR_ROBOT_HACK = None
 
@@ -405,4 +405,4 @@ if __name__ == "__main__":
 #   [/] stop path plan on line-of-sight
 #   [/] path-plan directly to boxes
 #   don't do updates after the first
-#   sonar better alignment
+#   [/]sonar better alignment
