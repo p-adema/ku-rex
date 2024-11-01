@@ -23,6 +23,7 @@ GOAL_UPDATE_INTERVAL = 1
 CURRENT_GOAL = Node(np.array([0, 0]))
 CURRENT_PLAN = None
 TARGET_BOX_ID = 1
+ALLOW_SPIN_INTERRUPTS = False
 
 
 KNOWN_BOXES = [
@@ -63,7 +64,8 @@ def circular_scan(
         timestamp = time.time()
         markers = sample_markers(img)
         if any(marker.id == TARGET_BOX_ID for marker in markers):
-            cancel_spin.set()
+            if ALLOW_SPIN_INTERRUPTS:
+                cancel_spin.set()
             target_line_of_sight.set()
 
         boxes = dedup_camera(markers, skip=SKIP_BOX_MEASUREMENTS)
@@ -78,7 +80,7 @@ def circular_scan(
     boxes = dedup_camera(markers, skip=SKIP_BOX_MEASUREMENTS)
     state.update_camera(boxes, timestamp=timestamp, ignore_far=ignore_far)
     success = True
-    if KNOWN_BOXES and do_update and not target_line_of_sight.is_set():
+    if KNOWN_BOXES and do_update and not cancel_spin.is_set():
         # print("Pre-transform state", state.current_state())
         # input("Press enter to transform")
         success = state.transform_known_boxes(KNOWN_BOXES, center_around=TARGET_BOX_ID)
@@ -98,7 +100,7 @@ def circular_scan(
 def state_thread(
     state: KalmanStateFixed,
 ):
-    global SKIP_BOX_MEASUREMENTS, SONAR_ROBOT_HACK
+    global SKIP_BOX_MEASUREMENTS, SONAR_ROBOT_HACK, ALLOW_SPIN_INTERRUPTS
     ignore_far = False
     try:
         with Link(server_ip, server_port) as link:
@@ -126,6 +128,7 @@ def state_thread(
                     while True:
                         try:
                             re_scan_barrier.wait(timeout=0.5)
+                            ALLOW_SPIN_INTERRUPTS = True
                             break
                         except threading.BrokenBarrierError:
                             re_scan_barrier.reset()
