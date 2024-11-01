@@ -81,10 +81,13 @@ def circular_scan(
     state.update_camera(boxes, timestamp=timestamp, ignore_far=ignore_far)
     success = True
     if KNOWN_BOXES and do_update and not cancel_spin.is_set():
+        print("DOING TRANSFORMATION")
         # print("Pre-transform state", state.current_state())
         # input("Press enter to transform")
         success = state.transform_known_boxes(KNOWN_BOXES, center_around=TARGET_BOX_ID)
         # print(f"Post-transform state {success=}", state.current_state())
+    else:
+        print("SKIPPING TRANSFORMATION")
 
     img = cam.capture_array()
     timestamp = time.time()
