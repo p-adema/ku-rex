@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import math
 import threading
 import time
 
@@ -32,6 +33,7 @@ KNOWN_BOXES = [
 ]
 N_START_SCANS = 1
 SKIP_BOX_MEASUREMENTS = set(range(1, 10))
+SONAR_ROBOT_HACK: CalibratedRobot | bool | None = None
 
 stop_program = threading.Event()
 turn_ready = threading.Event()
@@ -95,7 +97,7 @@ def circular_scan(
 def state_thread(
     state: KalmanStateFixed,
 ):
-    global SKIP_BOX_MEASUREMENTS
+    global SKIP_BOX_MEASUREMENTS, SONAR_ROBOT_HACK
     ignore_far = False
     try:
         with Link(server_ip, server_port) as link:
@@ -179,7 +181,38 @@ def state_thread(
 
                         est_state = state.current_state()
                         link.send(boxes, est_state, CURRENT_PLAN, CURRENT_GOAL.pos)
-                    continue
+
+                    if cancel_spin:
+                        continue
+
+                    sonar_prep_barrier.wait(timeout=1)
+                    assert SONAR_ROBOT_HACK is not None
+                    last_turn = math.radians(5)
+                    deadline = time.time() + 6
+                    success = False
+                    while time.time() < deadline:
+                        img = cam.capture_array()
+                        boxes = dedup_camera(sample_markers(img))
+                        target: Box | None = next(
+                            filter(lambda b: b.id == TARGET_BOX_ID, boxes), None
+                        )
+                        if target is None:
+                            SONAR_ROBOT_HACK.turn(-last_turn, state=state)
+                            continue
+                        if target.x < 1:
+                            success = True
+                            break
+                        angle = math.radians(90) - math.atan(target.y / abs(target.x))
+                        if angle < math.radians(4):
+                            success = True
+                            break
+
+                        if target.x > 0:
+                            SONAR_ROBOT_HACK.turn(0.9 * angle, state=state)
+                        else:
+                            SONAR_ROBOT_HACK.turn(-0.9 * angle, state=state)
+                    SONAR_ROBOT_HACK = success
+                    sonar_prep_barrier.wait(timeout=5)
 
                 img = cam.capture_array()
                 timestamp = time.time()
@@ -238,29 +271,7 @@ def path_plan(
             turn_ready.set()
             scan_ready.wait()
             scan_ready.clear()
-            # updated_goal = state.project_goal(original_goal.pos)
-            # if updated_goal is None:
-            #     need_rescan = True
-            #     print("Can't update goal, asking for rescan (within rescan)")
-            #     continue
-            # CURRENT_GOAL = Node(updated_goal)
-            # boxes = state.current_state().boxes
-            # target_box = next(filter(lambda box: box.id == goal_box_id, boxes), None)
-            # if target_box is None:
-            #    print("Asking for rescan: Didn't see goal box")
-            #    need_rescan = True
-            #    continue
-            # CURRENT_GOAL = Node(np.asarray(target_box) + goal_box_offset)
             last_scan_time = time.time()
-
-        # if time.time() - goal_update_time > GOAL_UPDATE_INTERVAL:
-        #     updated_goal = state.project_goal(original_goal.pos)
-        #     if updated_goal is None:
-        #         print("Can't update goal, asking for rescan (due to timer)")
-        #         need_rescan = True
-        #         continue
-        #     CURRENT_GOAL = Node(updated_goal)
-        #     goal_update_time = time.time()
 
         state.set_move_predictor(Stopped())
         est_state = state.current_state()
@@ -304,30 +315,32 @@ def path_plan(
         #     old_expected_idx = 0
 
 
-
 def sonar_approach(robot: CalibratedRobot, state: KalmanStateFixed, goal: Box):
-    global TARGET_BOX_ID
+    global TARGET_BOX_ID, SONAR_ROBOT_HACK
     turn_barrier.wait()
     angle, _dist = state.propose_movement(np.asarray(goal))
-    # input("Entering sonar approach")
 
-    # Overturn to be to the right of the box
-    robot.turn(angle - 20, state=state)
+    robot.turn(angle - np.radians(20), state=state)
     TARGET_BOX_ID = goal.id
     turn_barrier.wait()
     # input("Pre-spin")
     cancel_spin.clear()
-    sonar_prep_barrier.wait(timeout=5)
+    sonar_prep_barrier.wait(timeout=5)  # Allow other thread to capture images
     robot.spin_left(state=state, event=turn_ready, cancel=cancel_spin)
+    SONAR_ROBOT_HACK = robot
     try:
-        turn_barrier.wait(timeout=1)
+        sonar_prep_barrier.wait(timeout=1)  # Allow other thread to start aligning sonar
     except threading.BrokenBarrierError:
         cancel_spin.set()
-        turn_barrier.reset()
+        sonar_prep_barrier.reset()
         return False
     # input("Post-spin")
-    angle, _dist = state.propose_movement(np.asarray(goal))
-    robot.turn(angle, state=state)
+    sonar_prep_barrier.wait(timeout=10)  # Other thread is done with aligning
+    assert isinstance(SONAR_ROBOT_HACK, bool), "err"
+    if not SONAR_ROBOT_HACK:
+        return False
+    SONAR_ROBOT_HACK = None
+
     # input(f"Pre-seek {state.current_state()}")
     moved = robot.seek_forward(target_dist=200, max_dist=2_500)
     if moved == 0:
