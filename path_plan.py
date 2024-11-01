@@ -21,7 +21,8 @@ GOAL_UPDATE_INTERVAL = 1
 
 CURRENT_GOAL = Node(np.array([0, 0]))
 CURRENT_PLAN = None
-CENTOR_AROUND_BOX = 1
+TARGET_BOX_ID = 1
+
 
 KNOWN_BOXES = [
     Box(id=1, x=0, y=0),
@@ -31,12 +32,12 @@ KNOWN_BOXES = [
 ]
 N_START_SCANS = 1
 SKIP_BOX_MEASUREMENTS = set(range(1, 10))
-SONAR_PREP_TARGET = None
 
 stop_program = threading.Event()
 turn_ready = threading.Event()
 scan_ready = threading.Event()
 cancel_spin = threading.Event()
+target_line_of_sight = threading.Event()
 
 turn_barrier = threading.Barrier(2)
 re_scan_barrier = threading.Barrier(2)
@@ -57,19 +58,27 @@ def circular_scan(
     while not turn_ready.is_set():
         img = cam.capture_array()
         timestamp = time.time()
-        boxes = dedup_camera(sample_markers(img), skip=SKIP_BOX_MEASUREMENTS)
+        markers = sample_markers(img)
+        if any(marker.id == TARGET_BOX_ID for marker in markers):
+            cancel_spin.set()
+            target_line_of_sight.set()
+
+        boxes = dedup_camera(markers, skip=SKIP_BOX_MEASUREMENTS)
         state.update_camera(boxes, timestamp=timestamp, ignore_far=ignore_far)
         link.send(boxes, state.current_state(), CURRENT_PLAN, CURRENT_GOAL.pos)
     turn_ready.clear()
     img = cam.capture_array()
     timestamp = time.time()
-    boxes = dedup_camera(sample_markers(img), skip=SKIP_BOX_MEASUREMENTS)
+    markers = sample_markers(img)
+    if any(marker.id == TARGET_BOX_ID for marker in markers):
+        target_line_of_sight.set()
+    boxes = dedup_camera(markers, skip=SKIP_BOX_MEASUREMENTS)
     state.update_camera(boxes, timestamp=timestamp, ignore_far=ignore_far)
     success = True
     if KNOWN_BOXES and do_update:
         # print("Pre-transform state", state.current_state())
         # input("Press enter to transform")
-        success = state.transform_known_boxes(KNOWN_BOXES, center_around=CENTER_AROUND_BOX)
+        success = state.transform_known_boxes(KNOWN_BOXES, center_around=TARGET_BOX_ID)
         # print(f"Post-transform state {success=}", state.current_state())
 
     img = cam.capture_array()
@@ -141,7 +150,7 @@ def state_thread(
                         print("WARNING: re-scan failed, box positions seem to be wrong")
 
                 if sonar_prep_barrier.n_waiting:
-                    assert SONAR_PREP_TARGET is not None
+                    assert TARGET_BOX_ID is not None
                     sonar_prep_barrier.wait()
                     turn_ready.wait(timeout=5)
                     cancel_spin.clear()
@@ -150,7 +159,7 @@ def state_thread(
                         timestamp = time.time()
 
                         markers = sample_markers(img)
-                        #print(f"Found markers! {timestamp=} {markers}")
+                        # print(f"Found markers! {timestamp=} {markers}")
                         if not markers:
                             link.send(
                                 [],
@@ -159,7 +168,7 @@ def state_thread(
                                 CURRENT_GOAL.pos,
                             )
                             continue
-                        elif any(marker.id == SONAR_PREP_TARGET for marker in markers):
+                        elif any(marker.id == TARGET_BOX_ID for marker in markers):
                             print("Found sonar target!")
                             cancel_spin.set()
                         else:
@@ -179,6 +188,8 @@ def state_thread(
                 if not markers:
                     link.send([], state.current_state(), CURRENT_PLAN, CURRENT_GOAL.pos)
                     continue
+                if any(marker.id == TARGET_BOX_ID for marker in markers):
+                    target_line_of_sight.set()
                 boxes = dedup_camera(markers, skip=SKIP_BOX_MEASUREMENTS)
 
                 print(f"Found boxes! {timestamp=} {boxes}")
@@ -197,19 +208,22 @@ def path_plan(
     state: KalmanStateFixed,
     original_goal: Node,
     changed_radia: dict[int, float] = None,
-    trust: bool = False,
-):
+) -> bool:
     global CURRENT_PLAN, CURRENT_GOAL
     if changed_radia is None:
         changed_radia = {}
     CURRENT_GOAL = original_goal
+    CURRENT_PLAN = None
     last_scan_time = time.time()
     # goal_update_time = last_scan_time
     old_expected_idx = None
     need_rescan = True
     plan_iters = 2_000
     print("Asking for rescan: initial rescan")
+    target_line_of_sight.clear()
     while not stop_program.is_set():
+        if target_line_of_sight.is_set():
+            return True
         if (
             (time.time() - last_scan_time > AUTO_SCAN_INTERVAL)
             or re_scan_barrier.n_waiting
@@ -218,8 +232,9 @@ def path_plan(
         ):
             need_rescan = False
             turn_ready.clear()
+            cancel_spin.clear()
             re_scan_barrier.wait()
-            robot.spin_left(state=state, event=turn_ready)
+            robot.spin_left(state=state, event=turn_ready, cancel=cancel_spin)
             turn_ready.set()
             scan_ready.wait()
             scan_ready.clear()
@@ -229,13 +244,13 @@ def path_plan(
             #     print("Can't update goal, asking for rescan (within rescan)")
             #     continue
             # CURRENT_GOAL = Node(updated_goal)
-            #boxes = state.current_state().boxes
-            #target_box = next(filter(lambda box: box.id == goal_box_id, boxes), None)
-            #if target_box is None:
+            # boxes = state.current_state().boxes
+            # target_box = next(filter(lambda box: box.id == goal_box_id, boxes), None)
+            # if target_box is None:
             #    print("Asking for rescan: Didn't see goal box")
             #    need_rescan = True
             #    continue
-            #CURRENT_GOAL = Node(np.asarray(target_box) + goal_box_offset)
+            # CURRENT_GOAL = Node(np.asarray(target_box) + goal_box_offset)
             last_scan_time = time.time()
 
         # if time.time() - goal_update_time > GOAL_UPDATE_INTERVAL:
@@ -250,9 +265,12 @@ def path_plan(
         state.set_move_predictor(Stopped())
         est_state = state.current_state()
         goal_dist = np.linalg.norm(np.asarray(est_state.robot) - CURRENT_GOAL.pos)
-        if goal_dist < 50 or (trust and (600 <= goal_dist <= 1200)):
-            print("At goal!")
-            break
+        if goal_dist < 500:
+            print("At goal, but not spotted :(")
+            turn_barrier.wait(timeout=5)
+            robot.turn_left(180, state=state)
+            robot.go_forward(np.array([0, 0]), np.array([0, 500]), state=state)
+            return False
 
         CURRENT_PLAN = RRT.generate_plan(
             landmarks=est_state.boxes,
@@ -275,29 +293,29 @@ def path_plan(
         # input("postplan.")
 
         angle, _dist = state.propose_movement(CURRENT_PLAN[-2])
-        turn_barrier.wait()
+        turn_barrier.wait(timeout=5)
         # input(f"Ready for turn segment... ({math.degrees(angle)})")
         robot.turn(angle, state=state)
-        turn_barrier.wait()
+        turn_barrier.wait(timeout=5)
         # if (abs(angle) % 360) < math.radians(70):
         robot.go_forward(CURRENT_PLAN[-1], CURRENT_PLAN[-2], state=state)
         old_expected_idx = 1
         # else:
         #     old_expected_idx = 0
-    CURRENT_PLAN = None
+
 
 
 def sonar_approach(robot: CalibratedRobot, state: KalmanStateFixed, goal: Box):
-    global SONAR_PREP_TARGET
+    global TARGET_BOX_ID
     turn_barrier.wait()
     angle, _dist = state.propose_movement(np.asarray(goal))
-    #input("Entering sonar approach")
+    # input("Entering sonar approach")
 
     # Overturn to be to the right of the box
     robot.turn(angle - 20, state=state)
-    SONAR_PREP_TARGET = goal.id
+    TARGET_BOX_ID = goal.id
     turn_barrier.wait()
-    #input("Pre-spin")
+    # input("Pre-spin")
     cancel_spin.clear()
     sonar_prep_barrier.wait(timeout=5)
     robot.spin_left(state=state, event=turn_ready, cancel=cancel_spin)
@@ -310,27 +328,26 @@ def sonar_approach(robot: CalibratedRobot, state: KalmanStateFixed, goal: Box):
     # input("Post-spin")
     angle, _dist = state.propose_movement(np.asarray(goal))
     robot.turn(angle, state=state)
-    #input(f"Pre-seek {state.current_state()}")
+    # input(f"Pre-seek {state.current_state()}")
     moved = robot.seek_forward(target_dist=200, max_dist=2_500)
     if moved == 0:
         print("Failed to seek forwards!")
         turn_barrier.wait(timeout=1)
         return False
-    #input(f"Post-seek ({moved})")
+    # input(f"Post-seek ({moved})")
     robot.turn(np.pi, state=state)
     robot.go_forward(np.array([0, 0]), np.array([0, moved]))
-    #input(f"Done {state.current_state()}")
+    # input(f"Done {state.current_state()}")
     turn_ready.clear()
     cancel_spin.clear()
     scan_ready.clear()
     turn_barrier.wait(timeout=5)
-    SONAR_PREP_TARGET = None
+    TARGET_BOX_ID = None
     return True
 
 
 def main_thread():
-    global CURRENT_PLAN
-    global CENTER_AROUND_BOX
+    global CURRENT_PLAN, TARGET_BOX_ID
     state = KalmanStateFixed(n_boxes=9)
     with CalibratedRobot() as robot:
         t = threading.Thread(target=state_thread, args=[state])
@@ -343,26 +360,20 @@ def main_thread():
 
         # assert state.current_state().boxes, "No boxes found in scan! Can't plan!"
         # time.sleep(0.5)
-        in_front = np.array([0, -350])
         avoid_boxes = {box.id: 1_000 for box in KNOWN_BOXES}
-        pos_y = np.array([0, 1000])
-        neg_y = -pos_y
-        corner_3 = np.array([-700, 700])
-        corner_1 = np.array([700, 700])
-        for num, offset in zip((1, 2, 3, 4, 1), (pos_y, neg_y, pos_y, neg_y, pos_y)):
+        for box_id in (1, 2, 3, 4, 1):
             done = False
-            box = KNOWN_BOXES[num - 1]
-            CENTER_AROUND_BOX = num
+            box = KNOWN_BOXES[box_id - 1]
+            TARGET_BOX_ID = box_id
             print(f"Visiting {box}")
             trust = True
             while not done:
-                if num % 2 or not trust:
+                if box_id % 2 or not trust:
                     path_plan(
                         robot=robot,
                         state=state,
-                        original_goal=Node(np.asarray(box) + offset),
-                        changed_radia=avoid_boxes | {box.id: 550.0},
-                        trust=trust
+                        original_goal=Node(np.asarray(box)),
+                        changed_radia=avoid_boxes | {box.id: -10.0},
                     )
                 done = trust = sonar_approach(robot, state, box)
 
@@ -377,4 +388,8 @@ if __name__ == "__main__":
         stop_program.set()
         print("Exiting...")
 
-# TODO: check boxes out of position and then rescan
+# TODO:
+#   [/] stop path plan on line-of-sight
+#   [/] path-plan directly to boxes
+#   don't do updates after the first
+#   sonar better alignment
