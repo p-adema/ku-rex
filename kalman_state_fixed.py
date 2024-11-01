@@ -72,13 +72,22 @@ class KalmanStateFixed:
             expected_com += np.asarray(box)
             true_com += current_pos[box.id]
 
-        translation = (expected_com - true_com) / len(spotted_boxes)
+        expected_com, true_com = (
+            expected_com / len(spotted_boxes),
+            true_com / len(spotted_boxes),
+        )
+
+        translation = expected_com - true_com
         positions = self._cur_mean.reshape((-1, 2)) + translation
         angle_estimates = []
         for box in spotted_boxes:
             box_current = positions[box.id]
+            box_expected = np.asarray(box) - expected_com
             angle_estimates.append(
-                (np.arctan2(box.y, box.x) - np.arctan2(box_current[1], box_current[0]))
+                (
+                    np.arctan2(box_expected[1], box_expected[0])
+                    - np.arctan2(box_current[1], box_current[0])
+                )
                 % (math.pi * 2)
             )
         angle_estimates = np.array(angle_estimates)
@@ -88,6 +97,11 @@ class KalmanStateFixed:
         else:
             offset_pi = False
         if angle_estimates.max() - angle_estimates.min() > 1:
+            print(
+                f"Transform failed, {angle_estimates=}, {translation=},"
+                f"\t{expected_com=}, {true_com=}"
+            )
+
             return False, None, None
         angle = np.mean(angle_estimates)
         if offset_pi:
