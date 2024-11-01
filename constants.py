@@ -8,9 +8,9 @@ server_ip = "192.168.26.159"
 server_port = 1809
 
 map_min_x = -500
-map_max_x = +2_500
-map_min_y = -1_500
-map_max_y = +4_000
+map_max_x = +4_500
+map_min_y = -500
+map_max_y = +3_500
 
 box_size = 200
 box_size_margin = box_size + 450

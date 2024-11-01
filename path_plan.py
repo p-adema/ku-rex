@@ -24,9 +24,9 @@ CURRENT_PLAN = None
 
 KNOWN_BOXES = [
     Box(id=1, x=0, y=0),
-    Box(id=2, x=0, y=2_790),
-    # Box(id=3, x=1_920, y=2_450),
-    Box(id=4, x=1_920, y=2_450),
+    Box(id=2, x=0, y=3_000),
+    Box(id=3, x=4_000, y=0),
+    Box(id=4, x=3_000, y=4_000),
 ]
 N_START_SCANS = 1
 SKIP_BOX_MEASUREMENTS = set(range(1, 10))
@@ -321,7 +321,8 @@ def main_thread():
         # time.sleep(0.5)
         in_front = np.array([0, -350])
         avoid_boxes = {box.id: 1_000 for box in KNOWN_BOXES}
-        for box in KNOWN_BOXES:
+        for num in (1, 2, 3, 4, 1):
+            box = KNOWN_BOXES[num - 1]
             print(f"Visiting {box}")
             path_plan(
                 robot,

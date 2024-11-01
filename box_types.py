@@ -73,7 +73,7 @@ def dedup_camera(observed: list[CameraBox], skip: set[int] = None) -> list[Box]:
             y += 125
         else:
             y += 60
-        if y > 5_000:
+        if y > 6_000:
             continue
         if name in skip:
             skip.remove(name)
