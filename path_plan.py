@@ -189,7 +189,7 @@ def state_thread(
                     sonar_prep_barrier.wait(timeout=1)
                     assert SONAR_ROBOT_HACK is not None
                     last_turn = math.radians(5)
-                    deadline = time.time() + 6
+                    deadline = time.time() + 600
                     sonar_aligned.clear()
                     while time.time() < deadline and not sonar_aligned.is_set():
                         img = cam.capture_array()
@@ -199,14 +199,18 @@ def state_thread(
                         )
                         if target is None:
                             SONAR_ROBOT_HACK.turn(-last_turn, state=state)
+                            print(f"can't see target {TARGET_BOX_ID}")
                             continue
-                        if target.x < 1:
+                        if abs(target.x) < 1:
+                            print(f"{target} is pretty good")
                             sonar_aligned.set()
                             break
                         angle = math.radians(90) - math.atan(target.y / abs(target.x))
                         if angle < math.radians(4):
                             sonar_aligned.set()
                             break
+
+                        input(f"Going to turn about {math.degrees(0.9 * angle)} deg")
 
                         if target.x > 0:
                             SONAR_ROBOT_HACK.turn(0.9 * angle, state=state)
@@ -335,7 +339,7 @@ def sonar_approach(robot: CalibratedRobot, state: KalmanStateFixed, goal: Box):
         sonar_prep_barrier.reset()
         return False
     # input("Post-spin")
-    sonar_prep_barrier.wait(timeout=10)  # Other thread is done with aligning
+    sonar_prep_barrier.wait(timeout=100)  # Other thread is done with aligning
     if not sonar_aligned.is_set():
         print("Sonar alignment failed :(")
         return False
