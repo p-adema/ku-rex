@@ -164,6 +164,7 @@ def state_thread(
                         print("(state) exiting sonar_prep 1")
                     turn_ready.wait(timeout=5)
                     cancel_spin.clear()
+                    target_line_of_sight.clear()
                     while not cancel_spin.is_set():
                         img = cam.capture_array()
                         timestamp = time.time()
@@ -181,6 +182,7 @@ def state_thread(
                         elif any(marker.id == TARGET_BOX_ID for marker in markers):
                             print("Found sonar target!")
                             cancel_spin.set()
+                            target_line_of_sight.set()
                         else:
                             print("Found boxes but not target")
 
@@ -190,8 +192,9 @@ def state_thread(
                         est_state = state.current_state()
                         link.send(boxes, est_state, CURRENT_PLAN, CURRENT_GOAL.pos)
 
-                    if not cancel_spin.is_set():
+                    if not target_line_of_sight.is_set():
                         # We couldn't find it :(
+                        print("(state) skipping rest of sonar_prep")
                         continue
 
                     print("(state) entering sonar_prep 2")
@@ -220,7 +223,8 @@ def state_thread(
                             break
                         angle = math.radians(90) - math.atan(target.y / abs(target.x))
                         if angle < math.radians(10) and target.y > 2_000:
-                            SONAR_ROBOT_HACK.arlo.go(+106, +103, t=1)
+                            SONAR_ROBOT_HACK.arlo.go(+106, +103, t=0.5)
+                            time.sleep(0.05)
                         if angle < math.radians(3):
                             sonar_aligned.set()
                             break
