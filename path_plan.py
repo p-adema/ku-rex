@@ -154,7 +154,11 @@ def state_thread(
 
                 if sonar_prep_barrier.n_waiting:
                     assert TARGET_BOX_ID is not None
-                    sonar_prep_barrier.wait()
+                    print("(state) entering sonar_prep 1")
+                    try:
+                        sonar_prep_barrier.wait()
+                    finally:
+                        print("(state) exiting sonar_prep 1")
                     turn_ready.wait(timeout=5)
                     cancel_spin.clear()
                     while not cancel_spin.is_set():
@@ -187,7 +191,11 @@ def state_thread(
                         # We couldn't find it :(
                         continue
 
-                    sonar_prep_barrier.wait(timeout=1)
+                    print("(state) entering sonar_prep 2")
+                    try:
+                        sonar_prep_barrier.wait(timeout=1)
+                    finally:
+                        print("(state) exiting sonar_prep 2")
                     assert SONAR_ROBOT_HACK is not None
                     last_turn = math.radians(5)
                     deadline = time.time() + 600
@@ -217,7 +225,12 @@ def state_thread(
                             SONAR_ROBOT_HACK.turn(0.9 * angle, state=state)
                         else:
                             SONAR_ROBOT_HACK.turn(-0.9 * angle, state=state)
-                    sonar_prep_barrier.wait(timeout=5)
+
+                    print("(state) entering sonar_prep 3")
+                    try:
+                        sonar_prep_barrier.wait(timeout=5)
+                    finally:
+                        print("(state) exiting sonar_prep 3")
 
                 img = cam.capture_array()
                 timestamp = time.time()
@@ -337,17 +350,24 @@ def sonar_approach(robot: CalibratedRobot, state: KalmanStateFixed, goal: Box):
     turn_barrier.wait()
     # input("Pre-spin")
     cancel_spin.clear()
+    print("(main) entering sonar_prep 1")
     sonar_prep_barrier.wait(timeout=5)  # Allow other thread to capture images
+    print("(main) exiting sonar_prep 1")
     robot.spin_left(state=state, event=turn_ready, cancel=cancel_spin)
     SONAR_ROBOT_HACK = robot
     try:
+        print("(main) entering sonar_prep 2")
         sonar_prep_barrier.wait(timeout=1)  # Allow other thread to start aligning sonar
     except threading.BrokenBarrierError:
+        print("(main) ERROR exiting sonar_prep 2")
         cancel_spin.set()
         sonar_prep_barrier.reset()
         return False
+    print("(main) exiting sonar_prep 2")
     # input("Post-spin")
+    print("(main) entering sonar_prep 3")
     sonar_prep_barrier.wait(timeout=100)  # Other thread is done with aligning
+    print("(main) exiting sonar_prep 3")
     if not sonar_aligned.is_set():
         print("Sonar alignment failed :(")
         return False
