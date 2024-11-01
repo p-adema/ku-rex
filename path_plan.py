@@ -66,7 +66,6 @@ def circular_scan(
         if any(marker.id == TARGET_BOX_ID for marker in markers):
             if ALLOW_SPIN_INTERRUPTS:
                 cancel_spin.set()
-                input("Interrupting spin")
             target_line_of_sight.set()
 
         boxes = dedup_camera(markers, skip=SKIP_BOX_MEASUREMENTS)
@@ -129,7 +128,6 @@ def state_thread(
                     while True:
                         try:
                             re_scan_barrier.wait(timeout=0.5)
-                            ALLOW_SPIN_INTERRUPTS = True
                             break
                         except threading.BrokenBarrierError:
                             re_scan_barrier.reset()
@@ -153,6 +151,9 @@ def state_thread(
                     scan_ready.set()
                     if need_rescan:
                         print("WARNING: re-scan failed, box positions seem to be wrong")
+                    elif not ALLOW_SPIN_INTERRUPTS:
+                        print("Allowing spin interrupts")
+                        ALLOW_SPIN_INTERRUPTS = True
 
                 if sonar_prep_barrier.n_waiting:
                     assert TARGET_BOX_ID is not None
@@ -285,12 +286,11 @@ def path_plan(
     while not stop_program.is_set():
         if target_line_of_sight.is_set():
             return True
-        if (
-            (time.time() - last_scan_time > AUTO_SCAN_INTERVAL)
-            or re_scan_barrier.n_waiting
-            or need_rescan
-            or (state.known_badness() > 400)
-        ):
+        if time.time() - last_scan_time > AUTO_SCAN_INTERVAL:
+            print("Asking for rescan: duration")
+            need_rescan = True
+
+        if re_scan_barrier.n_waiting or need_rescan or (state.known_badness() > 400):
             need_rescan = False
             turn_ready.clear()
             cancel_spin.clear()
@@ -304,6 +304,8 @@ def path_plan(
         state.set_move_predictor(Stopped())
         est_state = state.current_state()
         goal_dist = np.linalg.norm(np.asarray(est_state.robot) - CURRENT_GOAL.pos)
+        if target_line_of_sight.is_set():
+            return True
         if goal_dist < 500 or robot.arlo.read_front_ping_sensor() < 100:
             print("At goal, but not spotted :(")
             turn_barrier.wait(timeout=5)
