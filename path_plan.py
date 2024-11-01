@@ -288,6 +288,9 @@ def path_plan(
             robot.go_forward(np.array([0, 0]), np.array([0, 500]), state=state)
             return False
 
+        if target_line_of_sight.is_set():
+            return True
+
         CURRENT_PLAN = RRT.generate_plan(
             landmarks=est_state.boxes,
             start=est_state.robot,
@@ -309,10 +312,14 @@ def path_plan(
         # input("postplan.")
 
         angle, _dist = state.propose_movement(CURRENT_PLAN[-2])
+        if target_line_of_sight.is_set():
+            return True
         turn_barrier.wait(timeout=5)
         # input(f"Ready for turn segment... ({math.degrees(angle)})")
         robot.turn(angle, state=state)
         turn_barrier.wait(timeout=5)
+        if target_line_of_sight.is_set():
+            return True
         # if (abs(angle) % 360) < math.radians(70):
         robot.go_forward(CURRENT_PLAN[-1], CURRENT_PLAN[-2], state=state)
         old_expected_idx = 1
