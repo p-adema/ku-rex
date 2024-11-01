@@ -198,6 +198,7 @@ def state_thread(
                     last_turn = math.radians(5)
                     deadline = time.time() + 600
                     sonar_aligned.clear()
+                    spotted = False
                     while time.time() < deadline and not sonar_aligned.is_set():
                         img = cam.capture_array()
                         boxes = dedup_camera(sample_markers(img))
@@ -218,14 +219,17 @@ def state_thread(
                         if angle < math.radians(3):
                             sonar_aligned.set()
                             break
-
+                        if not spotted:
+                            spotted = True
+                            time.sleep(0.2)
+                            continue
                         # input(f"Going to turn about {math.degrees(angle)} deg")
 
                         if target.x > 0:
                             SONAR_ROBOT_HACK.turn(angle, state=state)
                         else:
                             SONAR_ROBOT_HACK.turn(angle, state=state)
-                        time.sleep(0.2)
+                        break
 
                     print("(state) entering sonar_prep 3")
                     try:
