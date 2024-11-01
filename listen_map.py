@@ -77,8 +77,11 @@ def handle_robot(client: socket.socket):
 
     while not closed:
         msg = client.recv(4096)
-        closed, updates = parse_msg(msg)
         plt.pause(0.01)
+        try:
+            closed, updates = parse_msg(msg)
+        except ValueError:
+            continue
 
         for obs in updates:
             # state.update_camera(obs.cam, force_duration=0.2)

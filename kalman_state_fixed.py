@@ -42,15 +42,22 @@ class KalmanStateFixed:
         self._move: MovementPredictor = Stopped()
         self._known_boxes: list[Box] | None = None
 
-    def transform_known_boxes(self, boxes: list[Box]) -> bool:
+    def transform_known_boxes(self, boxes: list[Box], center_around: num) -> bool:
         with self._lock:
-            success, angle, positions = self.estimate_known_transform(boxes)
+            success, angle, positions, expected_com = self.estimate_known_transform(boxes)
             if success is not None:
                 return success
 
             rot_mat = self.rotation_matrix(angle)
             self._angle = (self._angle + angle) % (math.pi * 2)
-            self._cur_mean = (positions @ rot_mat).flatten()
+            rot_positions = (positions + expected_com) @ rot_mat - expected_com
+            center_box = next(filter(lambda box: box.id == center_around, boxes))
+            rot_positions -= rot_positions[center_around] - np.asarray(center_box)
+            print(
+                f"Transform before= \n{self._cur_mean.reshape((-1, 2))=}"
+                f"\nafter={rot_positions}"
+            )
+            self._cur_mean = rot_positions.flatten()
             self.force_known_positions(boxes)
             self._known_boxes = boxes
 
@@ -81,8 +88,8 @@ class KalmanStateFixed:
         positions = self._cur_mean.reshape((-1, 2)) + translation
         angle_estimates = []
         for box in spotted_boxes:
-            box_current = positions[box.id]
-            box_expected = np.asarray(box) - expected_com
+            box_current = (positions[box.id] - expected_com).flatten()
+            box_expected = (np.asarray(box) - expected_com).flatten()
             angle_estimates.append(
                 (
                     np.arctan2(box_expected[1], box_expected[0])
@@ -102,12 +109,12 @@ class KalmanStateFixed:
                 f"\t{expected_com=}, {true_com=}"
             )
 
-            return False, None, None
+            return False, None, None, None
         angle = np.mean(angle_estimates)
         if offset_pi:
             angle = (angle - np.pi) % (2 * np.pi)
-        print(f"Angle is ~ {math.degrees(angle):.0f} degrees ({angle_estimates=})")
-        return None, angle, positions
+        print(f"Angle is ~ {math.degrees(angle):.0f} degrees ({angle_estimates=}, {positions=}, {translation=})")
+        return None, angle, positions, expected_com
 
     def project_goal(self, goal: np.ndarray, known_boxes=None) -> np.ndarray | None:
         with self._lock:
@@ -192,7 +199,7 @@ class KalmanStateFixed:
                 rot_box = box_arr @ rot_mat
                 if (
                     ignore_far
-                    and (np.linalg.norm(positions[box.id] - rot_box) > 2500)
+                    and (np.linalg.norm(positions[box.id] - rot_box) > 25000000)
                     and (np.mean(uncertainties[box.id]) < 100)
                 ):
                     print(f"Skipping box {box.id}, would have been at {rot_box}")

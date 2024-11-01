@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import socket
 import struct
+import time
 
 import numpy as np
 
@@ -12,6 +13,7 @@ class Link:
     def __init__(self, ip, port):
         self.s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         self.s.connect((ip, port))
+        self.last_sent = time.time()
 
     def __enter__(self):
         return self
@@ -29,6 +31,9 @@ class Link:
         plan: np.ndarray | None,
         goal: np.ndarray,
     ):
+        if time.time() - self.last_sent < 0.7:
+            return
+        self.last_sent = time.time()
         msg = []
         for box in boxes:
             msg.append(box.pack())
@@ -52,3 +57,4 @@ class Link:
         msg.append(b"!end")
         self.s.send(b"".join(msg))
         msg.clear()
+
