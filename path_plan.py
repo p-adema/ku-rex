@@ -213,16 +213,19 @@ def state_thread(
                             sonar_aligned.set()
                             break
                         angle = math.radians(90) - math.atan(target.y / abs(target.x))
-                        if angle < math.radians(4):
+                        if angle < math.radians(10) and target.y > 1_000:
+                            SONAR_ROBOT_HACK.arlo.go(+106, +103, t=1)
+                        if angle < math.radians(3):
                             sonar_aligned.set()
                             break
 
-                        input(f"Going to turn about {math.degrees(0.9 * angle)} deg")
+                        # input(f"Going to turn about {math.degrees(angle)} deg")
 
                         if target.x > 0:
-                            SONAR_ROBOT_HACK.turn(0.9 * angle, state=state)
+                            SONAR_ROBOT_HACK.turn(angle, state=state)
                         else:
-                            SONAR_ROBOT_HACK.turn(-0.9 * angle, state=state)
+                            SONAR_ROBOT_HACK.turn(angle, state=state)
+                        time.sleep(0.2)
 
                     print("(state) entering sonar_prep 3")
                     try:
