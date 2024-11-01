@@ -78,7 +78,7 @@ def circular_scan(
     boxes = dedup_camera(markers, skip=SKIP_BOX_MEASUREMENTS)
     state.update_camera(boxes, timestamp=timestamp, ignore_far=ignore_far)
     success = True
-    if KNOWN_BOXES and do_update:
+    if KNOWN_BOXES and do_update and not target_line_of_sight.is_set():
         # print("Pre-transform state", state.current_state())
         # input("Press enter to transform")
         success = state.transform_known_boxes(KNOWN_BOXES, center_around=TARGET_BOX_ID)
