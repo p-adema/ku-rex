@@ -66,6 +66,7 @@ def circular_scan(
         if any(marker.id == TARGET_BOX_ID for marker in markers):
             if ALLOW_SPIN_INTERRUPTS:
                 cancel_spin.set()
+                input("Interrupting spin")
             target_line_of_sight.set()
 
         boxes = dedup_camera(markers, skip=SKIP_BOX_MEASUREMENTS)
