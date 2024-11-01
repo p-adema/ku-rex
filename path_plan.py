@@ -373,10 +373,11 @@ def sonar_approach(robot: CalibratedRobot, state: KalmanStateFixed, goal: Box):
     SONAR_ROBOT_HACK = None
 
     # input(f"Pre-seek {state.current_state()}")
+    turn_barrier.wait(timeout=1)
     moved = robot.seek_forward(target_dist=200, max_dist=2_500)
     if moved == 0:
-        print("Failed to seek forwards!")
         turn_barrier.wait(timeout=1)
+        print("Failed to seek forwards!")
         return False
     # input(f"Post-seek ({moved})")
     robot.turn(np.pi, state=state)

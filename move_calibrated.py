@@ -154,7 +154,6 @@ class CalibratedRobot:
         print("Stopping robot")
         self.arlo.stop()
 
-
     def seek_forward(self, target_dist: float, max_dist: float) -> int:
         initial_dist = side_dist = front_dist = self.arlo.read_front_ping_sensor()
         if front_dist > max_dist:
@@ -162,7 +161,7 @@ class CalibratedRobot:
             return 0
         self.arlo.go(+44, +42)
         looking_left = True
-        while (front_dist > target_dist + 10) and side_dist > 75:
+        while (front_dist > target_dist + 10) and side_dist > 100:
             front_dist = self.arlo.read_front_ping_sensor()
             if looking_left:
                 side_dist = self.arlo.read_left_ping_sensor()
