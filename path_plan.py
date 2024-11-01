@@ -213,7 +213,7 @@ def state_thread(
                             sonar_aligned.set()
                             break
                         angle = math.radians(90) - math.atan(target.y / abs(target.x))
-                        if angle < math.radians(10) and target.y > 1_000:
+                        if angle < math.radians(10) and target.y > 2_000:
                             SONAR_ROBOT_HACK.arlo.go(+106, +103, t=1)
                         if angle < math.radians(3):
                             sonar_aligned.set()
@@ -296,7 +296,7 @@ def path_plan(
         state.set_move_predictor(Stopped())
         est_state = state.current_state()
         goal_dist = np.linalg.norm(np.asarray(est_state.robot) - CURRENT_GOAL.pos)
-        if goal_dist < 500:
+        if goal_dist < 500 or robot.arlo.read_front_ping_sensor() < 100:
             print("At goal, but not spotted :(")
             turn_barrier.wait(timeout=5)
             robot.turn_left(180, state=state)
