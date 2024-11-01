@@ -119,7 +119,11 @@ def state_thread(
                             barriers_passed += 1
                         except threading.BrokenBarrierError:
                             turn_barrier.reset()
-                            if stop_program.is_set():
+                            if (
+                                stop_program.is_set()
+                                or sonar_prep_barrier.n_waiting
+                                or re_scan_barrier.n_waiting
+                            ):
                                 break
                         finally:
                             print("Was waiting at turn_barrier!")
