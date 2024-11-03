@@ -1,4 +1,5 @@
 import math
+import random
 import threading
 import time
 
@@ -243,7 +244,7 @@ class CalibratedRobot:
         time.sleep(0.2)
         ping = self.arlo.read_front_ping_sensor()
         if ping > 1_000:
-            self.arlo.go(+left_speed, +right_speed, t=1.4)
+            self.arlo.go(+left_speed, +right_speed, t=1 + random.random() * 0.5)
             self.arlo.stop()
             time.sleep(0.2)
         elif ping > 500:

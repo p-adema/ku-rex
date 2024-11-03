@@ -92,9 +92,17 @@ def path_plan(
             changed_radia=changed_radia,
         )
         if global_state.CURRENT_PLAN is None:
-            print("Asking for rescan: couldn't find a plan!")
-            need_rescan = True
-            plan_iters = 10_000
+            if plan_iters == 2_000:
+                print("Asking for rescan: couldn't find a plan")
+                need_rescan = True
+                plan_iters = 5_000
+            else:
+                print("Path plan failed, dodge")
+                global_state.turn_barrier.wait(timeout=5)
+                robot.turn_left(10 + random.random() * 30, state=state)
+                global_state.turn_barrier.wait(timeout=5)
+                global_state.scan_failed_go_back.set()
+                plan_iters = 2_000
             continue
         else:
             plan_iters = 2_000

@@ -91,7 +91,9 @@ def state_thread(state: KalmanStateFixed):
                     print("(state) entering turn sync")
                     state_turn_barrier()
 
-                if global_state.re_scan_barrier.n_waiting or need_rescan:
+                if global_state.re_scan_barrier.n_waiting or (
+                    need_rescan and not global_state.sonar_prep_barrier.n_waiting
+                ):
                     print("(state) entering re-scan sync")
                     scan_ok = synchronised_rescan_state(cam, link, state)
                     if scan_ok is None:
@@ -161,6 +163,19 @@ def state_turn_barrier():
             print("Was waiting at turn_barrier!")
 
 
+# noinspection DuplicatedCode
+def synchronised_rescan_copy(robot, state):
+    global_state.turn_ready.clear()
+    global_state.cancel_spin.clear()
+    global_state.re_scan_barrier.wait(timeout=15)
+    robot.spin_left(
+        state=state, event=global_state.turn_ready, cancel=global_state.cancel_spin
+    )
+    global_state.turn_ready.set()
+    global_state.scan_ready.wait(timeout=5)
+    global_state.scan_ready.clear()
+
+
 def synchronised_sonar_state(cam, link, state):
     assert global_state.TARGET_BOX_ID is not None
 
@@ -194,8 +209,20 @@ def synchronised_sonar_state(cam, link, state):
                 moved = min(moved, 700)  # Don't go more than 70cm back
                 global_state.SONAR_ROBOT_HACK.turn(np.pi, state=state)
                 global_state.SONAR_ROBOT_HACK.go_forward(
-                    np.array([0, 0]), np.array([0, moved])
+                    np.array([0, 0]), np.array([0, min(100.0, moved)])
                 )
+                global_state.target_line_of_sight.clear()
+                global_state.TARGET_BOX_ID = global_state.NEXT_TARGET_BOX_ID
+                extra_thread = threading.Thread(
+                    target=synchronised_rescan_copy,
+                    args=(global_state.SONAR_ROBOT_HACK, state),
+                )
+                extra_thread.start()
+                synchronised_rescan_state(cam, link, state)
+                if not global_state.target_line_of_sight.is_set():
+                    global_state.SONAR_ROBOT_HACK.go_forward(
+                        np.array([0, 0]), np.array([0, max(moved - 100, 0)])
+                    )
             else:
                 global_state.sonar_aligned.clear()
 
@@ -251,7 +278,7 @@ def sonar_find_loop(cam, link, state):
 def sonar_align_loop(cam, state) -> float | None:
     assert global_state.SONAR_ROBOT_HACK is not None
     last_turn = math.radians(10)
-    deadline = time.time() + 4
+    deadline = time.time() + 5.5
     global_state.sonar_aligned.clear()
     spotted = False
     approach_fail = 0
@@ -282,6 +309,23 @@ def sonar_align_loop(cam, state) -> float | None:
             continue
         angle = math.radians(90) - math.atan(target.y / abs(target.x))
         print(f"spotted {target=} ({angle=})")
+        if angle < math.radians(10):
+            problem: Box | None = next(
+                filter(
+                    lambda b: (b.id != global_state.TARGET_BOX_ID)
+                    and (abs(b.x - target.x) < 700)
+                    and (target.y - b.y > 1_000),
+                    boxes,
+                ),
+                None,
+            )
+
+            if problem is not None:
+                print(f"Found a {problem=}")
+                global_state.SONAR_ROBOT_HACK.dodge_side(problem.x < 0)
+                spotted = False
+                deadline += 0.6
+                continue
         if angle < math.radians(7) and target.y > 1_700:
             print("\tapproaching box more closely")
             global_state.SONAR_ROBOT_HACK.fast_forward(t=0.3)
@@ -295,6 +339,7 @@ def sonar_align_loop(cam, state) -> float | None:
             spotted = True
             time.sleep(0.3)
             continue
+
         if angle < math.radians(3):
             # sonar_dist = global_state.SONAR_ROBOT_HACK.arlo.read_front_ping_sensor()
             print(
