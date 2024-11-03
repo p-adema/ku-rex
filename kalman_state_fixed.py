@@ -44,22 +44,15 @@ class KalmanStateFixed:
 
     def transform_known_boxes(self, boxes: list[Box], center_around: int) -> bool:
         with self._lock:
-            success, angle, positions, expected_com = self.estimate_known_transform(
-                boxes
-            )
-            if success is not None:
-                return success
+            # Make 'centre_around' the first box, prefer it as root_box
+            boxes = sorted(boxes, key=lambda b: b.id != center_around)
+            success, angle, positions = self.estimate_known_transform(boxes)
+            if not success:
+                return False
 
             rot_mat = self.rotation_matrix(angle)
             self._angle = (self._angle + angle) % (math.pi * 2)
-            rot_positions = (positions - expected_com) @ rot_mat + expected_com
-            center_box = next(filter(lambda box: box.id == center_around, boxes))
-            rot_positions -= rot_positions[center_around] - np.asarray(center_box)
-            print(
-                f"Transform before= \n{self._cur_mean.reshape((-1, 2))=}"
-                f"\nafter={rot_positions}"
-            )
-            self._cur_mean = rot_positions.flatten()
+            self._cur_mean = (positions @ rot_mat).flatten()
             self.force_known_positions(boxes)
             self._known_boxes = boxes
 
@@ -69,56 +62,45 @@ class KalmanStateFixed:
 
     def estimate_known_transform(
         self, boxes
-    ) -> tuple[bool | None, float | None, np.ndarray | None, np.ndarray | None]:
+    ) -> tuple[bool, float | None, np.ndarray | None]:
         assert len(boxes) > 0, "Must have at least one box"
         variance = np.diag(self._cur_covar).reshape((-1, 2)).mean(1)
         spotted_boxes = [box for box in boxes if variance[box.id] < 200]
-        assert spotted_boxes, "No boxes spotted!"
-        expected_com = np.zeros((1, 2))
-        true_com = np.zeros((1, 2))
-        current_pos = self._cur_mean.reshape((-1, 2))
-        for box in spotted_boxes:
-            expected_com += np.asarray(box)
-            true_com += current_pos[box.id]
-
-        expected_com, true_com = (
-            expected_com / len(spotted_boxes),
-            true_com / len(spotted_boxes),
-        )
-
-        translation = expected_com - true_com
+        if not spotted_boxes:
+            return False, None, None
+        root_box, *turn_boxes = spotted_boxes
+        assert variance[root_box.id] < 200, "Root box must be spotted"
+        translation = np.asarray(root_box) - self._cur_mean[
+            root_box.id * 2 : root_box.id * 2 + 2
+        ].reshape((1, 2))
         positions = self._cur_mean.reshape((-1, 2)) + translation
+        if not turn_boxes:
+            return True, 0, positions
+
         angle_estimates = []
-        for box in spotted_boxes:
-            box_current = (positions[box.id] - expected_com).flatten()
-            box_expected = (np.asarray(box) - expected_com).flatten()
+        for box in turn_boxes:
+            if variance[box.id] > 200:
+                continue
+            box_current = positions[box.id]
             angle_estimates.append(
-                (
-                    np.arctan2(box_expected[1], box_expected[0])
-                    - np.arctan2(box_current[1], box_current[0])
-                )
+                (np.arctan2(box.y, box.x) - np.arctan2(box_current[1], box_current[0]))
                 % (math.pi * 2)
             )
+
         angle_estimates = np.array(angle_estimates)
         if angle_estimates.min() < 1 or angle_estimates.max() > 5:
             angle_estimates = (angle_estimates + np.pi) % (2 * np.pi)
+            print(f" updated {angle_estimates=}")
             offset_pi = True
         else:
             offset_pi = False
         if angle_estimates.max() - angle_estimates.min() > 1:
-            print(
-                f"Transform failed, {angle_estimates=}, {translation=},"
-                f"\t{expected_com=}, {true_com=}"
-            )
-
-            return False, None, None, None
+            return False, None, None
         angle = np.mean(angle_estimates)
         if offset_pi:
             angle = (angle - np.pi) % (2 * np.pi)
-        print(
-            f"Angle is ~ {math.degrees(angle):.0f} degrees ({angle_estimates=}, {positions=}, {translation=})"
-        )
-        return None, angle, positions, expected_com
+        print(f"Angle is ~ {math.degrees(angle):.0f} degrees")
+        return True, angle, positions
 
     def project_goal(self, goal: np.ndarray, known_boxes=None) -> np.ndarray | None:
         with self._lock:
