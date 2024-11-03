@@ -4,6 +4,7 @@ import time
 
 import numpy as np
 
+import global_state
 import robot
 from kalman_state_fixed import KalmanStateFixed
 from movement_predictors import LinearInterpolation, LinearTurn, Stopped
@@ -53,10 +54,40 @@ class CalibratedRobot:
                 LinearInterpolation(start_pos, end_pos, start, sleep_dur)
             )
 
-        remaining = (start + sleep_dur) - time.time()
-        if remaining > 0:
-            time.sleep(remaining)
-        self.arlo.stop()
+        pre_deadline = start + sleep_dur - 0.6
+        looking_left = True
+        front_dist = side_dist = self.arlo.read_front_ping_sensor()
+        while (time.time() < pre_deadline) and (front_dist > 300) and (side_dist > 100):
+            looking_left = not looking_left
+            front_dist = self.arlo.read_front_ping_sensor()
+            if looking_left:
+                side_dist = self.arlo.read_left_ping_sensor()
+            else:
+                side_dist = self.arlo.read_right_ping_sensor()
+            time.sleep(0.5)
+
+        if (front_dist > 300) and (side_dist > 100):
+            remaining = (start + sleep_dur) - time.time()
+            if remaining > 0:
+                time.sleep(remaining)
+
+            self.arlo.stop()
+            return
+
+        stop_time = self.arlo.stop()
+        state.set_move_predictor(Stopped(), cancelled_at=stop_time)
+
+        if side_dist <= 100:
+            did_turn = False
+            try:
+                global_state.turn_barrier.wait(timeout=1)
+                self.dodge_side(looking_left)
+                did_turn = True
+                global_state.turn_barrier.wait(timeout=1)
+            except threading.BrokenBarrierError:
+                # If we somehow call this from the state_thread
+                if not did_turn:
+                    self.dodge_side(looking_left)
 
     def spin_left(
         self,
@@ -112,8 +143,8 @@ class CalibratedRobot:
             time.sleep(remaining)
         if stop:
             self.arlo.stop()
-        final = time.time() - start - sleep_dur
-        print(f"Turn error {final:.4f}")
+        # final = time.time() - start - sleep_dur
+        # print(f"Turn error {final:.4f}")
 
     def turn_right(self, theta_deg: float, state: KalmanStateFixed = None):
         if theta_deg < 30:
@@ -138,7 +169,7 @@ class CalibratedRobot:
         if remaining > 0:
             time.sleep(remaining)
         self.arlo.stop()
-        final = time.time() - start - sleep_dur
+        # final = time.time() - start - sleep_dur
         # print(f"Turn error {final:.4f}")
 
     def turn(self, theta_rad: float, state: KalmanStateFixed = None):
@@ -163,6 +194,21 @@ class CalibratedRobot:
     def median_ping_right(self, n=3) -> int:
         return sorted(self.arlo.read_right_ping_sensor() for _ in range(n))[n // 2 + 1]
 
+    def fast_forward(self, t: float = 0.3):
+        side_dist = self.arlo.read_left_ping_sensor()
+        deadline = time.time() + t
+        looking_left = True
+        self.arlo.go(+106, +103)
+        while (time.time() < deadline) and (side_dist > 100):
+            looking_left = not looking_left
+            if looking_left:
+                side_dist = self.arlo.read_left_ping_sensor()
+            else:
+                side_dist = self.arlo.read_right_ping_sensor()
+        self.arlo.stop()
+        if side_dist <= 100:
+            self.dodge_side(looking_left)
+
     def seek_forward(self, cam_dist: float) -> float:
         side_dist = front_dist = self.arlo.read_front_ping_sensor()
         deadline = time.time() + cam_dist / ROBOT_SPEED
@@ -184,15 +230,18 @@ class CalibratedRobot:
         if not stopped_early or side_dist > 100:
             return cam_dist
 
+        self.dodge_side(looking_left)
+        return 0
+
+    def dodge_side(self, looking_left):
         if looking_left:
             self.turn_right(90)
-            self.arlo.go(+left_speed, +right_speed, t=0.5)
+            self.arlo.go(+left_speed, +right_speed, t=1)
             self.turn_left(90)
         else:
             self.turn_left(90)
-            self.arlo.go(+left_speed, +right_speed, t=0.5)
+            self.arlo.go(+left_speed, +right_speed, t=1)
             self.turn_right(90)
-        return 0
 
     def __exit__(self, exc_type, exc_val, exc_tb):
         self.arlo.stop()

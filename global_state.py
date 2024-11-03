@@ -1,11 +1,14 @@
 from __future__ import annotations
 
 import threading
+from typing import TYPE_CHECKING
 
 import numpy as np
 
 from box_types import Node
-from move_calibrated import CalibratedRobot
+
+if TYPE_CHECKING:
+    from move_calibrated import CalibratedRobot
 
 CURRENT_GOAL = Node(np.array([0, 0]))
 CURRENT_PLAN = None

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import math
+import random
 import threading
 import time
 
@@ -203,6 +204,8 @@ def synchronised_sonar_state(cam, link, state):
                 )
             else:
                 global_state.sonar_aligned.clear()
+                global_state.SONAR_ROBOT_HACK.dodge_side(random.random() > 0.3)
+
         else:
             global_state.sonar_aligned.clear()
 
@@ -252,7 +255,7 @@ def sonar_find_loop(cam, link, state):
 def sonar_align_loop(cam, state) -> float | None:
     assert global_state.SONAR_ROBOT_HACK is not None
     last_turn = math.radians(10)
-    deadline = time.time() + 3
+    deadline = time.time() + 2
     global_state.sonar_aligned.clear()
     spotted = False
     approach_fail = 0
@@ -266,7 +269,7 @@ def sonar_align_loop(cam, state) -> float | None:
             if approach_fail == 1:
                 print("Approach failed, doing 180")
                 global_state.SONAR_ROBOT_HACK.turn_left(180)
-                global_state.SONAR_ROBOT_HACK.arlo.go(+106, +103, t=0.2)
+                global_state.SONAR_ROBOT_HACK.arlo.go(+106, +103, t=0.4)
                 global_state.SONAR_ROBOT_HACK.turn_left(180)
                 approach_fail += 1
                 spotted = False
@@ -283,7 +286,7 @@ def sonar_align_loop(cam, state) -> float | None:
         print(f"spotted {target=} ({angle=})")
         if angle < math.radians(7) and target.y > 1_700:
             print("\tapproaching box more closely")
-            global_state.SONAR_ROBOT_HACK.arlo.go(+106, +103, t=0.3)
+            global_state.SONAR_ROBOT_HACK.fast_forward(t=0.3)
             time.sleep(0.05)
             spotted = False
             if not approach_fail:
@@ -297,7 +300,7 @@ def sonar_align_loop(cam, state) -> float | None:
             # sonar_dist = global_state.SONAR_ROBOT_HACK.arlo.read_front_ping_sensor()
             print(
                 f"\taccepting sonar calibration, "
-                f"angle {np.degrees(angle)}, {target.y=} < 1500"
+                f"angle {np.degrees(angle)}, {target.y=} < 1700"
             )
             global_state.sonar_aligned.set()
             return target.y
@@ -308,6 +311,7 @@ def sonar_align_loop(cam, state) -> float | None:
         if target.x > 0:
             last_turn *= -1
         global_state.SONAR_ROBOT_HACK.turn(last_turn, state=state)
+        time.sleep(0.2)
         print("\tturned after spotting, going forward")
 
     return None

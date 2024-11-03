@@ -33,7 +33,7 @@ def path_plan(
     global_state.target_line_of_sight.clear()
     while not global_state.stop_program.is_set():
         if global_state.target_line_of_sight.is_set():
-            return True
+            return False
         if time.time() - last_scan_time > constants.AUTO_SCAN_INTERVAL:
             print("Asking for rescan: duration")
             need_rescan = True
@@ -61,12 +61,12 @@ def path_plan(
         if global_state.target_line_of_sight.is_set():
             return False
         if goal_dist < 500:
-            print("At goal or wall, but not spotted :(")
+            print("path_plan thinks we're at the goal")
             global_state.turn_barrier.wait(timeout=5)  # Enters turn barrier
             robot.turn_left(180, state=state)
             global_state.turn_barrier.wait(timeout=5)  # Exit turn barrier
             robot.go_forward(np.array([0, 0]), np.array([0, 500]), state=state)
-            return False
+            return True
 
         #  or robot.arlo.read_front_ping_sensor() < 100
 
@@ -78,10 +78,10 @@ def path_plan(
             start=est_state.robot,
             goal=global_state.CURRENT_GOAL,
             max_iter=plan_iters,
-            clip_first=300 if old_expected_idx is None else 800,
+            clip_first=300 if old_expected_idx is None else 1_500,
             old_plan=global_state.CURRENT_PLAN,
             old_expected_idx=old_expected_idx,
-            changed_radia=changed_radia,  # tODO: remove
+            changed_radia=changed_radia,
         )
         if global_state.CURRENT_PLAN is None:
             print("Asking for rescan: couldn't find a plan!")
@@ -93,16 +93,19 @@ def path_plan(
 
         angle, _dist = state.propose_movement(global_state.CURRENT_PLAN[-2])
         if global_state.target_line_of_sight.is_set():
-            return True
+            return False
         global_state.turn_barrier.wait(timeout=5)
         robot.turn(angle, state=state)
         global_state.turn_barrier.wait(timeout=5)
         if global_state.target_line_of_sight.is_set():
-            return True
+            return False
         robot.go_forward(
             global_state.CURRENT_PLAN[-1], global_state.CURRENT_PLAN[-2], state=state
         )
         old_expected_idx = 1
+        if np.linalg.norm(global_state.CURRENT_PLAN[-2] - original_goal.pos) < 500:
+            print("path_plan thinks we just reached the goal")
+            return True
 
 
 def synchronised_rescan_main(robot, state):
@@ -165,12 +168,15 @@ def main_thread():
             trust = True
             while not done:
                 if box_id % 2 or not trust:
-                    path_plan(
+                    _done = path_plan(
                         robot=robot,
                         state=state,
                         original_goal=Node(np.asarray(box)),
                         changed_radia=avoid_boxes | {box.id: -10.0},
                     )
+                if done:
+                    break
+
                 done = trust = sonar_approach(robot, state, box)
                 print(f"MAIN THREAD: {box_id=} {done=}")
 

@@ -8,7 +8,7 @@ import numpy as np
 from matplotlib.patches import Circle
 
 import constants
-from kalman_state import Box
+from box_types import Box
 
 
 def axes_base(ax_live: plt.Axes, ax_state: plt.Axes):
