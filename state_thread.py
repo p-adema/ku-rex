@@ -38,12 +38,12 @@ def circular_scan(
 
         boxes = dedup_camera(markers, skip=global_state.SKIP_BOX_MEASUREMENTS)
         state.update_camera(boxes, timestamp=timestamp, ignore_far=ignore_far)
-        link.send(
-            boxes,
-            state.current_state(),
-            global_state.CURRENT_PLAN,
-            global_state.CURRENT_GOAL.pos,
-        )
+        # link.send(
+        #     boxes,
+        #     state.current_state(),
+        #     global_state.CURRENT_PLAN,
+        #     global_state.CURRENT_GOAL.pos,
+        # )
     global_state.turn_ready.clear()
     img = cam.capture_array()
     timestamp = time.time()
@@ -69,31 +69,24 @@ def circular_scan(
     boxes = dedup_camera(sample_markers(img), skip=global_state.SKIP_BOX_MEASUREMENTS)
     state.update_camera(boxes, timestamp=timestamp, ignore_far=ignore_far)
 
-    link.send(
-        boxes,
-        state.current_state(),
-        global_state.CURRENT_PLAN,
-        global_state.CURRENT_GOAL.pos,
-    )
+    # link.send(
+    #     boxes,
+    #     state.current_state(),
+    #     global_state.CURRENT_PLAN,
+    #     global_state.CURRENT_GOAL.pos,
+    # )
     return success
     # input("Press enter to continue")
     # print("Scan complete, state", state.current_state())
 
 
-def state_thread(
-    state: KalmanStateFixed,
-):
-    ignore_far = False
+def state_thread(state: KalmanStateFixed):
     try:
-        with Link(server_ip, server_port) as link:
+        with Link(server_ip, server_port, disabled=True) as link:
             cam = aruco_utils.get_camera_picamera()
             need_rescan = False
-            # for _ in range(N_START_SCANS):
-            #     need_rescan = not circular_scan(cam, state, link, do_update=True)
-            #     scan_ready.set()
             print("(state) booting up")
             while not global_state.stop_program.is_set():
-                # print(f"State thread: {state.current_state()}")
                 if global_state.turn_barrier.n_waiting:
                     print("(state) entering turn sync")
                     state_turn_barrier()
@@ -104,10 +97,10 @@ def state_thread(
                     if scan_ok is None:
                         continue
                     need_rescan = not scan_ok
-                    ignore_far = True
                     global_state.scan_ready.set()
                     if need_rescan:
                         print("WARNING: re-scan failed, box positions seem to be wrong")
+                        global_state.scan_failed_go_back.set()
                     elif not global_state.ALLOW_SPIN_INTERRUPTS:
                         print("Allowing spin interrupts")
                         global_state.ALLOW_SPIN_INTERRUPTS = True
@@ -122,12 +115,12 @@ def state_thread(
 
                 markers = sample_markers(img)
                 if not markers:
-                    link.send(
-                        [],
-                        state.current_state(),
-                        global_state.CURRENT_PLAN,
-                        global_state.CURRENT_GOAL.pos,
-                    )
+                    # link.send(
+                    #     [],
+                    #     state.current_state(),
+                    #     global_state.CURRENT_PLAN,
+                    #     global_state.CURRENT_GOAL.pos,
+                    # )
                     continue
                 if any(marker.id == global_state.TARGET_BOX_ID for marker in markers):
                     global_state.target_line_of_sight.set()
@@ -137,12 +130,13 @@ def state_thread(
                 state.update_camera(boxes, timestamp=timestamp)
 
                 est_state = state.current_state()
-                link.send(
-                    boxes,
-                    est_state,
-                    global_state.CURRENT_PLAN,
-                    global_state.CURRENT_GOAL.pos,
-                )
+                # link.send(
+                #     boxes,
+                #     est_state,
+                #     global_state.CURRENT_PLAN,
+                #     global_state.CURRENT_GOAL.pos,
+                # )
+                time.sleep(0.2)
     finally:
         print("State exiting!")
         global_state.scan_ready.set()
@@ -204,10 +198,12 @@ def synchronised_sonar_state(cam, link, state):
                 )
             else:
                 global_state.sonar_aligned.clear()
-                global_state.SONAR_ROBOT_HACK.dodge_side(random.random() > 0.3)
 
         else:
             global_state.sonar_aligned.clear()
+            global_state.SONAR_ROBOT_HACK.dodge_side(random.random() > 0.3)
+    else:
+        global_state.SONAR_ROBOT_HACK.dodge_side(random.random() > 0.3)
 
     print("(state) entering sonar_prep 3")
     try:
@@ -230,12 +226,12 @@ def sonar_find_loop(cam, link, state):
         markers = sample_markers(img)
         # print(f"Found markers! {timestamp=} {markers}")
         if not markers:
-            link.send(
-                [],
-                state.current_state(),
-                None,
-                global_state.CURRENT_GOAL.pos,
-            )
+            # link.send(
+            #     [],
+            #     state.current_state(),
+            #     None,
+            #     global_state.CURRENT_GOAL.pos,
+            # )
             continue
         elif any(marker.id == global_state.TARGET_BOX_ID for marker in markers):
             print("Found sonar target!")
@@ -247,15 +243,15 @@ def sonar_find_loop(cam, link, state):
         state.update_camera(boxes, timestamp=timestamp)
 
         est_state = state.current_state()
-        link.send(
-            boxes, est_state, global_state.CURRENT_PLAN, global_state.CURRENT_GOAL.pos
-        )
+        # link.send(
+        #     boxes, est_state, global_state.CURRENT_PLAN, global_state.CURRENT_GOAL.pos
+        # )
 
 
 def sonar_align_loop(cam, state) -> float | None:
     assert global_state.SONAR_ROBOT_HACK is not None
     last_turn = math.radians(10)
-    deadline = time.time() + 2
+    deadline = time.time() + 4
     global_state.sonar_aligned.clear()
     spotted = False
     approach_fail = 0
@@ -265,7 +261,9 @@ def sonar_align_loop(cam, state) -> float | None:
         target: Box | None = next(
             filter(lambda b: b.id == global_state.TARGET_BOX_ID, boxes), None
         )
+
         if target is None:
+            global_state.SONAR_ROBOT_HACK.arlo.stop()
             if approach_fail == 1:
                 print("Approach failed, doing 180")
                 global_state.SONAR_ROBOT_HACK.turn_left(180)
@@ -287,11 +285,12 @@ def sonar_align_loop(cam, state) -> float | None:
         if angle < math.radians(7) and target.y > 1_700:
             print("\tapproaching box more closely")
             global_state.SONAR_ROBOT_HACK.fast_forward(t=0.3)
-            time.sleep(0.05)
+            deadline += 0.5
             spotted = False
             if not approach_fail:
                 approach_fail = 1
             continue
+        global_state.SONAR_ROBOT_HACK.stop()
         if not spotted:
             spotted = True
             time.sleep(0.3)
@@ -321,7 +320,7 @@ def synchronised_rescan_state(cam, link, state):
     exit_early = False
     while True:
         try:
-            global_state.re_scan_barrier.wait(timeout=0.5)
+            global_state.re_scan_barrier.wait(timeout=0.3)
             break
         except threading.BrokenBarrierError:
             global_state.re_scan_barrier.reset()
@@ -342,10 +341,5 @@ def synchronised_rescan_state(cam, link, state):
         state,
         link,
         do_update=True,
-        ignore_far=False,  # ignore_far or state.known_badness() > 350,
+        ignore_far=False,
     )
-
-
-# [can't see, doesn't turn]
-# [straight for landmark]
-#

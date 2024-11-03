@@ -268,16 +268,19 @@ class RRT:
             draw_extent=DrawExtent(),
             changed_radia=changed_radia or {},
         )
-
-        rrt = RRT(
-            start=Node(np.array([start.x, start.y])),
-            goal=goal,
-            landmarks=marks,
-            **kwargs,
-        )
-        plan = rrt.plan()
-        _ARRAY_CACHE = rrt.pos_array
-        return plan
+        try:
+            rrt = RRT(
+                start=Node(np.array([start.x, start.y])),
+                goal=goal,
+                landmarks=marks,
+                **kwargs,
+            )
+            plan = rrt.plan()
+            _ARRAY_CACHE = rrt.pos_array
+            return plan
+        except ValueError as e:
+            print("plan threw exception!", e)
+            return None
 
 
 def main():

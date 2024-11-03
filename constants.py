@@ -18,9 +18,9 @@ box_size = 200
 box_size_margin = box_size + 450
 KNOWN_BOXES = [
     Box(id=1, x=0, y=0),
-    Box(id=2, x=0, y=2_650),
+    Box(id=2, x=0, y=3_000),
     Box(id=3, x=4_000, y=0),
-    Box(id=4, x=4_000, y=2_650),
+    Box(id=4, x=4_000, y=3_000),
 ]
 N_START_SCANS = 1
 AUTO_SCAN_INTERVAL = 1

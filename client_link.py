@@ -10,19 +10,19 @@ from box_types import Box, StateEstimate
 
 
 class Link:
-    def __init__(self, ip, port):
-        self.s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        self.s.connect((ip, port))
-        self.last_sent = time.time()
+    def __init__(self, ip, port, disabled: bool = False):
+        if not disabled:
+            self.s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            self.s.connect((ip, port))
+            self.last_sent = time.time()
+        self.disabled = disabled
 
     def __enter__(self):
         return self
 
     def __exit__(self, exc_type, exc_val, exc_tb):
-        self.s.close()
-
-    def empty(self):
-        self.s.send(b"!empty!end")
+        if not self.disabled:
+            self.s.close()
 
     def send(
         self,
@@ -31,6 +31,8 @@ class Link:
         plan: np.ndarray | None,
         goal: np.ndarray,
     ):
+        if self.disabled:
+            return
         if time.time() - self.last_sent < 0.7:
             return
         self.last_sent = time.time()
@@ -57,4 +59,3 @@ class Link:
         msg.append(b"!end")
         self.s.send(b"".join(msg))
         msg.clear()
-

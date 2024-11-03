@@ -24,6 +24,7 @@ cancel_spin = threading.Event()
 target_line_of_sight = threading.Event()
 sonar_aligned = threading.Event()
 sonar_need_spin = threading.Event()
+scan_failed_go_back = threading.Event()
 
 turn_barrier = threading.Barrier(2)
 re_scan_barrier = threading.Barrier(2)

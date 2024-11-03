@@ -185,7 +185,7 @@ class KalmanStateFixed:
                 rot_box = box_arr @ rot_mat
                 if (
                     ignore_far
-                    and (np.linalg.norm(positions[box.id] - rot_box) > 25000000)
+                    and (np.linalg.norm(positions[box.id] - rot_box) > 5000)
                     and (np.mean(uncertainties[box.id]) < 100)
                 ):
                     print(f"Skipping box {box.id}, would have been at {rot_box}")

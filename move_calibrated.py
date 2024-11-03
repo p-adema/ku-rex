@@ -54,7 +54,7 @@ class CalibratedRobot:
                 LinearInterpolation(start_pos, end_pos, start, sleep_dur)
             )
 
-        pre_deadline = start + sleep_dur - 0.6
+        pre_deadline = start + sleep_dur - 0.2
         looking_left = True
         front_dist = side_dist = self.arlo.read_front_ping_sensor()
         while (time.time() < pre_deadline) and (front_dist > 300) and (side_dist > 100):
@@ -64,7 +64,7 @@ class CalibratedRobot:
                 side_dist = self.arlo.read_left_ping_sensor()
             else:
                 side_dist = self.arlo.read_right_ping_sensor()
-            time.sleep(0.5)
+            time.sleep(0.1)
 
         if (front_dist > 300) and (side_dist > 100):
             remaining = (start + sleep_dur) - time.time()
@@ -195,18 +195,20 @@ class CalibratedRobot:
         return sorted(self.arlo.read_right_ping_sensor() for _ in range(n))[n // 2 + 1]
 
     def fast_forward(self, t: float = 0.3):
-        side_dist = self.arlo.read_left_ping_sensor()
+        front_dist = side_dist = self.arlo.read_front_ping_sensor()
         deadline = time.time() + t
         looking_left = True
         self.arlo.go(+106, +103)
-        while (time.time() < deadline) and (side_dist > 100):
+        while (time.time() < deadline) and (front_dist > 500) and (side_dist > 200):
             looking_left = not looking_left
+            front_dist = self.arlo.read_front_ping_sensor()
             if looking_left:
                 side_dist = self.arlo.read_left_ping_sensor()
             else:
                 side_dist = self.arlo.read_right_ping_sensor()
-        self.arlo.stop()
-        if side_dist <= 100:
+
+        if side_dist <= 200 or front_dist <= 500:
+            self.arlo.stop()
             self.dodge_side(looking_left)
 
     def seek_forward(self, cam_dist: float) -> float:
@@ -224,7 +226,7 @@ class CalibratedRobot:
                 side_dist = self.arlo.read_right_ping_sensor()
 
         stop_time = self.arlo.stop()
-        stopped_early = stop_time - deadline < -0.5
+        stopped_early = stop_time - deadline < -0.3
         print(f"seek_forward: {stopped_early=} {front_dist=} {side_dist}")
 
         if not stopped_early or side_dist > 100:
@@ -234,14 +236,21 @@ class CalibratedRobot:
         return 0
 
     def dodge_side(self, looking_left):
+        angle = math.radians(90)
         if looking_left:
-            self.turn_right(90)
-            self.arlo.go(+left_speed, +right_speed, t=1)
-            self.turn_left(90)
-        else:
-            self.turn_left(90)
-            self.arlo.go(+left_speed, +right_speed, t=1)
-            self.turn_right(90)
+            angle *= -1
+        self.turn(angle)
+        time.sleep(0.2)
+        ping = self.arlo.read_front_ping_sensor()
+        if ping > 1_000:
+            self.arlo.go(+left_speed, +right_speed, t=1.4)
+            self.arlo.stop()
+            time.sleep(0.2)
+        elif ping > 500:
+            self.arlo.go(+left_speed, +right_speed, t=0.7)
+            self.arlo.stop()
+            time.sleep(0.2)
+        self.turn(-angle)
 
     def __exit__(self, exc_type, exc_val, exc_tb):
         self.arlo.stop()

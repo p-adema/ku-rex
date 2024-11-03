@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import random
 import threading
 import time
 
@@ -31,12 +32,19 @@ def path_plan(
     plan_iters = 2_000
     print("Asking for rescan: initial rescan")
     global_state.target_line_of_sight.clear()
+    global_state.scan_failed_go_back.clear()
     while not global_state.stop_program.is_set():
         if global_state.target_line_of_sight.is_set():
             return False
         if time.time() - last_scan_time > constants.AUTO_SCAN_INTERVAL:
             print("Asking for rescan: duration")
             need_rescan = True
+
+        if global_state.scan_failed_go_back.is_set():
+            global_state.turn_barrier.wait(timeout=3)
+            robot.dodge_side(random.random() > 0.3)
+            global_state.turn_barrier.wait(timeout=3)
+            global_state.scan_failed_go_back.clear()
 
         if (
             global_state.re_scan_barrier.n_waiting
@@ -78,7 +86,7 @@ def path_plan(
             start=est_state.robot,
             goal=global_state.CURRENT_GOAL,
             max_iter=plan_iters,
-            clip_first=300 if old_expected_idx is None else 1_500,
+            clip_first=1_500,  # 300 if old_expected_idx is None else 800,
             old_plan=global_state.CURRENT_PLAN,
             old_expected_idx=old_expected_idx,
             changed_radia=changed_radia,
@@ -103,9 +111,9 @@ def path_plan(
             global_state.CURRENT_PLAN[-1], global_state.CURRENT_PLAN[-2], state=state
         )
         old_expected_idx = 1
-        if np.linalg.norm(global_state.CURRENT_PLAN[-2] - original_goal.pos) < 500:
-            print("path_plan thinks we just reached the goal")
-            return True
+        # if np.linalg.norm(global_state.CURRENT_PLAN[-2] - original_goal.pos) < 500:
+        #     print("path_plan thinks we just reached the goal")
+        #     return True
 
 
 def synchronised_rescan_main(robot, state):
@@ -164,7 +172,7 @@ def main_thread():
             done = False
             box = constants.KNOWN_BOXES[box_id - 1]
             global_state.TARGET_BOX_ID = box_id
-            print(f"Visiting {box}")
+            print(f"\n=== === Visiting box {box_id} === ===\n")
             trust = True
             while not done:
                 if box_id % 2 or not trust:
@@ -182,11 +190,3 @@ def main_thread():
 
     global_state.stop_program.set()
     t.join()
-
-
-if __name__ == "__main__":
-    try:
-        main_thread()
-    finally:
-        global_state.stop_program.set()
-        print("Exiting...")
