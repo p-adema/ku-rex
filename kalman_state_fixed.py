@@ -52,7 +52,7 @@ class KalmanStateFixed:
 
             rot_mat = self.rotation_matrix(angle)
             self._angle = (self._angle + angle) % (math.pi * 2)
-            rot_positions = (positions + expected_com) @ rot_mat - expected_com
+            rot_positions = (positions - expected_com) @ rot_mat + expected_com
             center_box = next(filter(lambda box: box.id == center_around, boxes))
             rot_positions -= rot_positions[center_around] - np.asarray(center_box)
             print(
@@ -69,7 +69,7 @@ class KalmanStateFixed:
 
     def estimate_known_transform(
         self, boxes
-    ) -> tuple[bool | None, float | None, np.ndarray | None]:
+    ) -> tuple[bool | None, float | None, np.ndarray | None, np.ndarray | None]:
         assert len(boxes) > 0, "Must have at least one box"
         variance = np.diag(self._cur_covar).reshape((-1, 2)).mean(1)
         spotted_boxes = [box for box in boxes if variance[box.id] < 200]

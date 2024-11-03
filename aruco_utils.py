@@ -84,9 +84,9 @@ def get_camera_picamera(
 ) -> picamera2.Picamera2:
     cam = picamera2.Picamera2()
     frame_duration_limit = int(1 / fps * 1000000)  # Microseconds
-    image_size = image_size[0] // downscale, image_size[1] // downscale
+    image_downscaled = image_size[0] // downscale, image_size[1] // downscale
     picam2_config = cam.create_video_configuration(
-        {"size": image_size, "format": "RGB888"},
+        main={"size": image_downscaled, "format": "RGB888"},
         controls={
             "FrameDurationLimits": (frame_duration_limit, frame_duration_limit),
             "ExposureTime": exposure_time_ns,

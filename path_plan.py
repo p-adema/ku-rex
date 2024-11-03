@@ -55,9 +55,10 @@ def path_plan(
         if global_state.target_line_of_sight.is_set():
             return True
         if goal_dist < 500 or robot.arlo.read_front_ping_sensor() < 100:
-            print("At goal, but not spotted :(")
-            global_state.turn_barrier.wait(timeout=5)
+            print("At goal or wall, but not spotted :(")
+            global_state.turn_barrier.wait(timeout=5)  # Enters turn barrier
             robot.turn_left(180, state=state)
+            global_state.turn_barrier.wait(timeout=5)  # Exit turn barrier
             robot.go_forward(np.array([0, 0]), np.array([0, 500]), state=state)
             return False
 
@@ -99,7 +100,7 @@ def path_plan(
 def synchronised_rescan_main(robot, state):
     global_state.turn_ready.clear()
     global_state.cancel_spin.clear()
-    global_state.re_scan_barrier.wait(timeout=5)
+    global_state.re_scan_barrier.wait(timeout=15)
     robot.spin_left(
         state=state, event=global_state.turn_ready, cancel=global_state.cancel_spin
     )
@@ -109,57 +110,36 @@ def synchronised_rescan_main(robot, state):
 
 
 def sonar_approach(robot: CalibratedRobot, state: KalmanStateFixed, goal: Box):
-    global_state.turn_barrier.wait(timeout=5)
-    angle, _dist = state.propose_movement(np.asarray(goal))
-
-    robot.turn(angle - np.radians(20), state=state)
     global_state.TARGET_BOX_ID = goal.id
-    global_state.turn_barrier.wait(timeout=5)
     global_state.cancel_spin.clear()
+    global_state.sonar_aligned.clear()
     print("(main) entering sonar_prep 1")
     global_state.sonar_prep_barrier.wait(
         timeout=5
     )  # Allow other thread to capture images
     print("(main) exiting sonar_prep 1")
+    global_state.SONAR_ROBOT_HACK = robot
     robot.spin_left(
         state=state, event=global_state.turn_ready, cancel=global_state.cancel_spin
     )
-    global_state.SONAR_ROBOT_HACK = robot
-    try:
-        print("(main) entering sonar_prep 2")
-        global_state.sonar_prep_barrier.wait(
-            timeout=1
-        )  # Allow other thread to start aligning sonar
-    except threading.BrokenBarrierError:
-        print("(main) ERROR exiting sonar_prep 2")
-        global_state.cancel_spin.set()
-        global_state.sonar_prep_barrier.reset()
-        return False
+    global_state.cancel_spin.set()
+    print("(main) entering sonar_prep 2")
+    global_state.sonar_prep_barrier.wait(
+        timeout=1
+    )  # Expect that other thread should be waiting for us
     print("(main) exiting sonar_prep 2")
     print("(main) entering sonar_prep 3")
     global_state.sonar_prep_barrier.wait(
-        timeout=100
+        timeout=10
     )  # Other thread is done with aligning
     print("(main) exiting sonar_prep 3")
-    if not global_state.sonar_aligned.is_set():
-        print("Sonar alignment failed :(")
-        return False
-    global_state.SONAR_ROBOT_HACK = None
 
-    global_state.turn_barrier.wait(timeout=1)
-    moved = robot.seek_forward(target_dist=200, max_dist=2_500)
-    if moved == 0:
-        global_state.turn_barrier.wait(timeout=1)
-        print("Failed to seek forwards!")
-        return False
-    robot.turn(np.pi, state=state)
-    robot.go_forward(np.array([0, 0]), np.array([0, moved]))
     global_state.turn_ready.clear()
     global_state.cancel_spin.clear()
     global_state.scan_ready.clear()
-    global_state.turn_barrier.wait(timeout=5)
-    global_state.TARGET_BOX_ID = None
-    return True
+    global_state.SONAR_ROBOT_HACK = None
+
+    return global_state.sonar_aligned.is_set()
 
 
 def main_thread():
@@ -183,6 +163,7 @@ def main_thread():
                         changed_radia=avoid_boxes | {box.id: -10.0},
                     )
                 done = trust = sonar_approach(robot, state, box)
+                print(f"MAIN THREAD: {box_id=} {done=}")
 
     global_state.stop_program.set()
     t.join()

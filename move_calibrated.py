@@ -139,12 +139,12 @@ class CalibratedRobot:
             time.sleep(remaining)
         self.arlo.stop()
         final = time.time() - start - sleep_dur
-        print(f"Turn error {final:.4f}")
+        # print(f"Turn error {final:.4f}")
 
     def turn(self, theta_rad: float, state: KalmanStateFixed = None):
         # Make sure we don't turn more than 180 degrees
         theta_deg = math.degrees(theta_rad) % 360
-        print(f"Turn {theta_rad=} {theta_deg=} (left)")
+        # print(f"Turn {theta_rad=} {theta_deg=} (left)")
         if theta_deg < 180:
             return self.turn_left(theta_deg, state=state)
         else:
@@ -154,14 +154,12 @@ class CalibratedRobot:
         print("Stopping robot")
         self.arlo.stop()
 
-    def seek_forward(self, target_dist: float, max_dist: float) -> int:
+    def seek_forward(self, close_dist: float, cam_dist: float) -> int:
         initial_dist = side_dist = front_dist = self.arlo.read_front_ping_sensor()
-        if front_dist > max_dist:
-            print(f"Seek failed, distance {front_dist} > {max_dist}")
-            return 0
+        target_dist = max(close_dist, initial_dist - cam_dist + 400) + 10
         self.arlo.go(+44, +42)
         looking_left = True
-        while (front_dist > target_dist + 10) and side_dist > 100:
+        while (front_dist > target_dist) and side_dist > 100:
             front_dist = self.arlo.read_front_ping_sensor()
             if looking_left:
                 side_dist = self.arlo.read_left_ping_sensor()
@@ -170,6 +168,10 @@ class CalibratedRobot:
             looking_left = not looking_left
 
         self.arlo.stop()
+        if front_dist < target_dist:
+            print(f"seek_forward: stopped, {front_dist=} < {target_dist=}")
+        else:
+            print(f"seek_forward: stopped, {side_dist=}")
         return initial_dist - self.arlo.read_front_ping_sensor()
 
     def __exit__(self, exc_type, exc_val, exc_tb):
