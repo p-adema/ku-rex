@@ -212,7 +212,7 @@ def synchronised_sonar_state(cam, link, state):
                     np.array([0, 0]), np.array([0, min(100.0, moved)])
                 )
                 global_state.target_line_of_sight.clear()
-                global_state.TARGET_BOX_ID = global_state.NEXT_TARGET_BOX_ID
+                global_state.TARGET_BOX_ID = (global_state.TARGET_BOX_ID % 4) + 1
                 extra_thread = threading.Thread(
                     target=synchronised_rescan_copy,
                     args=(global_state.SONAR_ROBOT_HACK, state),

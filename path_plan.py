@@ -176,6 +176,7 @@ def main_thread():
         t = threading.Thread(target=state_thread, args=[state])
         t.start()
         avoid_boxes = {box.id: 1_000 for box in constants.KNOWN_BOXES}
+        initial_accept = True
         for box_id in (1, 2, 3, 4, 1):
             done = False
             box = constants.KNOWN_BOXES[box_id - 1]
@@ -183,16 +184,14 @@ def main_thread():
             print(f"\n=== === Visiting box {box_id} === ===\n")
             trust = True
             while not done:
-                if box_id % 2 or not trust:
-                    _done = path_plan(
+                if (box_id % 2 or not trust) and not initial_accept:
+                    _fake_done = path_plan(
                         robot=robot,
                         state=state,
                         original_goal=Node(np.asarray(box)),
                         changed_radia=avoid_boxes | {box.id: -10.0},
                     )
-                if done:
-                    break
-
+                initial_accept = False
                 done = trust = sonar_approach(robot, state, box)
                 print(f"MAIN THREAD: {box_id=} {done=}")
 
