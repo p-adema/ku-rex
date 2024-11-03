@@ -92,8 +92,8 @@ class CalibratedRobot:
         if theta_deg == 360:
             sleep_dur *= 1.03  # 1.015
 
-        if sleep_dur < 0.05:
-            return
+        # if sleep_dur < 0.05:
+        #     return
 
         start = self.arlo.go(-66, +64)
         if actual_start is not None:
@@ -121,8 +121,8 @@ class CalibratedRobot:
         else:
             sleep_dur = 0.007970288435463647 * theta_deg - 0.044264287596813466
 
-        if sleep_dur < 0.05:
-            return
+        # if sleep_dur < 0.05:
+        #     return
 
         start = self.arlo.go(+66, -64)
 
@@ -154,25 +154,45 @@ class CalibratedRobot:
         print("Stopping robot")
         self.arlo.stop()
 
-    def seek_forward(self, close_dist: float, cam_dist: float) -> int:
-        initial_dist = side_dist = front_dist = self.arlo.read_front_ping_sensor()
-        target_dist = max(close_dist, initial_dist - cam_dist + 400) + 10
-        self.arlo.go(+44, +42)
+    def median_ping_left(self, n=3) -> int:
+        return sorted(self.arlo.read_left_ping_sensor() for _ in range(n))[n // 2 + 1]
+
+    def median_ping_front(self, n=3) -> int:
+        return sorted(self.arlo.read_front_ping_sensor() for _ in range(n))[n // 2 + 1]
+
+    def median_ping_right(self, n=3) -> int:
+        return sorted(self.arlo.read_right_ping_sensor() for _ in range(n))[n // 2 + 1]
+
+    def seek_forward(self, cam_dist: float) -> float:
+        side_dist = front_dist = self.arlo.read_front_ping_sensor()
+        deadline = time.time() + cam_dist / ROBOT_SPEED
+        self.arlo.go(+left_speed, +right_speed)
+        print(f"seek_forward: {cam_dist=}")
         looking_left = True
-        while (front_dist > target_dist) and side_dist > 100:
+        while (time.time() < deadline) and (front_dist > 300) and (side_dist > 100):
+            looking_left = not looking_left
             front_dist = self.arlo.read_front_ping_sensor()
             if looking_left:
                 side_dist = self.arlo.read_left_ping_sensor()
             else:
                 side_dist = self.arlo.read_right_ping_sensor()
-            looking_left = not looking_left
 
-        self.arlo.stop()
-        if front_dist < target_dist:
-            print(f"seek_forward: stopped, {front_dist=} < {target_dist=}")
+        stop_time = self.arlo.stop()
+        stopped_early = stop_time - deadline < -0.5
+        print(f"seek_forward: {stopped_early=} {front_dist=} {side_dist}")
+
+        if not stopped_early or side_dist > 100:
+            return cam_dist
+
+        if looking_left:
+            self.turn_right(90)
+            self.arlo.go(+left_speed, +right_speed, t=0.5)
+            self.turn_left(90)
         else:
-            print(f"seek_forward: stopped, {side_dist=}")
-        return initial_dist - self.arlo.read_front_ping_sensor()
+            self.turn_left(90)
+            self.arlo.go(+left_speed, +right_speed, t=0.5)
+            self.turn_right(90)
+        return 0
 
     def __exit__(self, exc_type, exc_val, exc_tb):
         self.arlo.stop()

@@ -168,13 +168,22 @@ def state_turn_barrier():
 
 def synchronised_sonar_state(cam, link, state):
     assert global_state.TARGET_BOX_ID is not None
+
+    global_state.sonar_need_spin.clear()
+    if not any(
+        marker.id == global_state.TARGET_BOX_ID
+        for marker in (sample_markers(cam.capture_array()))
+    ):
+        global_state.sonar_need_spin.set()
     print("(state) entering sonar_prep 1")
     try:
         global_state.sonar_prep_barrier.wait()
     finally:
         print("(state) exiting sonar_prep 1")
-    global_state.turn_ready.wait(timeout=5)
-    sonar_find_loop(cam, link, state)
+
+    if global_state.sonar_need_spin.is_set():
+        global_state.turn_ready.wait(timeout=5)
+        sonar_find_loop(cam, link, state)
 
     print("(state) entering sonar_prep 2")
     try:
@@ -185,14 +194,15 @@ def synchronised_sonar_state(cam, link, state):
         cam_dist = sonar_align_loop(cam, state)
 
         if cam_dist is not None:
-            moved = global_state.SONAR_ROBOT_HACK.seek_forward(
-                close_dist=200, cam_dist=cam_dist
-            )
-            moved = min(moved, 700)  # Don't go more than 70cm back
-            global_state.SONAR_ROBOT_HACK.turn(np.pi, state=state)
-            global_state.SONAR_ROBOT_HACK.go_forward(
-                np.array([0, 0]), np.array([0, moved])
-            )
+            moved = global_state.SONAR_ROBOT_HACK.seek_forward(cam_dist=cam_dist - 400)
+            if moved:
+                moved = min(moved, 700)  # Don't go more than 70cm back
+                global_state.SONAR_ROBOT_HACK.turn(np.pi, state=state)
+                global_state.SONAR_ROBOT_HACK.go_forward(
+                    np.array([0, 0]), np.array([0, moved])
+                )
+            else:
+                global_state.sonar_aligned.clear()
         else:
             global_state.sonar_aligned.clear()
 
@@ -242,9 +252,10 @@ def sonar_find_loop(cam, link, state):
 def sonar_align_loop(cam, state) -> float | None:
     assert global_state.SONAR_ROBOT_HACK is not None
     last_turn = math.radians(10)
-    deadline = time.time() + 7
+    deadline = time.time() + 3
     global_state.sonar_aligned.clear()
     spotted = False
+    approach_fail = 0
     while time.time() < deadline and not global_state.sonar_aligned.is_set():
         img = cam.capture_array()
         boxes = dedup_camera(sample_markers(img))
@@ -252,6 +263,14 @@ def sonar_align_loop(cam, state) -> float | None:
             filter(lambda b: b.id == global_state.TARGET_BOX_ID, boxes), None
         )
         if target is None:
+            if approach_fail == 1:
+                print("Approach failed, doing 180")
+                global_state.SONAR_ROBOT_HACK.turn_left(180)
+                global_state.SONAR_ROBOT_HACK.arlo.go(+106, +103, t=0.2)
+                global_state.SONAR_ROBOT_HACK.turn_left(180)
+                approach_fail += 1
+                spotted = False
+                continue
             print(
                 f"can't see target "
                 f"(Box {global_state.TARGET_BOX_ID}) {math.degrees(last_turn)=}"
@@ -262,17 +281,19 @@ def sonar_align_loop(cam, state) -> float | None:
             continue
         angle = math.radians(90) - math.atan(target.y / abs(target.x))
         print(f"spotted {target=} ({angle=})")
-        if angle < math.radians(10) and target.y > 1_500:
+        if angle < math.radians(7) and target.y > 1_700:
             print("\tapproaching box more closely")
             global_state.SONAR_ROBOT_HACK.arlo.go(+106, +103, t=0.3)
             time.sleep(0.05)
             spotted = False
+            if not approach_fail:
+                approach_fail = 1
             continue
         if not spotted:
             spotted = True
             time.sleep(0.3)
             continue
-        if angle < math.radians(10):
+        if angle < math.radians(3):
             # sonar_dist = global_state.SONAR_ROBOT_HACK.arlo.read_front_ping_sensor()
             print(
                 f"\taccepting sonar calibration, "
@@ -283,17 +304,17 @@ def sonar_align_loop(cam, state) -> float | None:
 
         # input(f"Going to turn about {math.degrees(angle)} deg")
 
-        last_turn = 0.3 * angle
-        if target.x < 0:
+        last_turn = angle * 0.5
+        if target.x > 0:
             last_turn *= -1
         global_state.SONAR_ROBOT_HACK.turn(last_turn, state=state)
-        print(f"\tturned {np.degrees(angle):.1f} ({target=})")
-        time.sleep(0.2)
+        print("\tturned after spotting, going forward")
 
     return None
 
 
 def synchronised_rescan_state(cam, link, state):
+    exit_early = False
     while True:
         try:
             global_state.re_scan_barrier.wait(timeout=0.5)
@@ -303,18 +324,24 @@ def synchronised_rescan_state(cam, link, state):
             if (
                 global_state.turn_barrier.n_waiting
                 or global_state.stop_program.is_set()
+                or global_state.sonar_prep_barrier.n_waiting
             ):
+                exit_early = True
                 break
         finally:
             print("Was waiting at re_scan_barrier!")
-    if global_state.turn_barrier.n_waiting or global_state.stop_program.is_set():
-        scan_ok = None
-    else:
-        scan_ok = circular_scan(
-            cam,
-            state,
-            link,
-            do_update=True,
-            ignore_far=False,  # ignore_far or state.known_badness() > 350,
-        )
-    return scan_ok
+    if exit_early:
+        return None
+
+    return circular_scan(
+        cam,
+        state,
+        link,
+        do_update=True,
+        ignore_far=False,  # ignore_far or state.known_badness() > 350,
+    )
+
+
+# [can't see, doesn't turn]
+# [straight for landmark]
+#

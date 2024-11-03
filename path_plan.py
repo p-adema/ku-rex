@@ -46,15 +46,21 @@ def path_plan(
             need_rescan = False
             synchronised_rescan_main(robot, state)
             last_scan_time = time.time()
+            continue
 
         state.set_move_predictor(Stopped())
         est_state = state.current_state()
+        if not est_state.boxes:
+            need_rescan = True
+            continue
+
         goal_dist = np.linalg.norm(
             np.asarray(est_state.robot) - global_state.CURRENT_GOAL.pos
         )
+
         if global_state.target_line_of_sight.is_set():
-            return True
-        if goal_dist < 500 or robot.arlo.read_front_ping_sensor() < 100:
+            return False
+        if goal_dist < 500:
             print("At goal or wall, but not spotted :(")
             global_state.turn_barrier.wait(timeout=5)  # Enters turn barrier
             robot.turn_left(180, state=state)
@@ -62,8 +68,10 @@ def path_plan(
             robot.go_forward(np.array([0, 0]), np.array([0, 500]), state=state)
             return False
 
+        #  or robot.arlo.read_front_ping_sensor() < 100
+
         if global_state.target_line_of_sight.is_set():
-            return True
+            return False
 
         global_state.CURRENT_PLAN = RRT.generate_plan(
             landmarks=est_state.boxes,
@@ -119,10 +127,11 @@ def sonar_approach(robot: CalibratedRobot, state: KalmanStateFixed, goal: Box):
     )  # Allow other thread to capture images
     print("(main) exiting sonar_prep 1")
     global_state.SONAR_ROBOT_HACK = robot
-    robot.spin_left(
-        state=state, event=global_state.turn_ready, cancel=global_state.cancel_spin
-    )
-    global_state.cancel_spin.set()
+    if global_state.sonar_need_spin.is_set():
+        robot.spin_left(
+            state=state, event=global_state.turn_ready, cancel=global_state.cancel_spin
+        )
+        global_state.cancel_spin.set()
     print("(main) entering sonar_prep 2")
     global_state.sonar_prep_barrier.wait(
         timeout=1
@@ -130,7 +139,7 @@ def sonar_approach(robot: CalibratedRobot, state: KalmanStateFixed, goal: Box):
     print("(main) exiting sonar_prep 2")
     print("(main) entering sonar_prep 3")
     global_state.sonar_prep_barrier.wait(
-        timeout=10
+        timeout=30
     )  # Other thread is done with aligning
     print("(main) exiting sonar_prep 3")
 

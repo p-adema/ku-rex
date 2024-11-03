@@ -10,7 +10,7 @@ from move_calibrated import CalibratedRobot
 CURRENT_GOAL = Node(np.array([0, 0]))
 CURRENT_PLAN = None
 TARGET_BOX_ID = 1
-ALLOW_SPIN_INTERRUPTS = False
+ALLOW_SPIN_INTERRUPTS = True
 SKIP_BOX_MEASUREMENTS = set(range(1, 10))
 SONAR_ROBOT_HACK: CalibratedRobot | None = None
 
@@ -20,6 +20,7 @@ scan_ready = threading.Event()
 cancel_spin = threading.Event()
 target_line_of_sight = threading.Event()
 sonar_aligned = threading.Event()
+sonar_need_spin = threading.Event()
 
 turn_barrier = threading.Barrier(2)
 re_scan_barrier = threading.Barrier(2)
