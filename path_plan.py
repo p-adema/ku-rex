@@ -175,7 +175,7 @@ def main_thread():
     with CalibratedRobot() as robot:
         t = threading.Thread(target=state_thread, args=[state])
         t.start()
-        avoid_boxes = {box.id: 1_000 for box in constants.KNOWN_BOXES}
+        avoid_boxes = {box.id: 1_500 for box in constants.KNOWN_BOXES}
         initial_accept = True
         for box_id in (1, 2, 3, 4, 1):
             done = False

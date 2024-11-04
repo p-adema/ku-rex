@@ -219,10 +219,11 @@ def synchronised_sonar_state(cam, link, state):
                 )
                 extra_thread.start()
                 synchronised_rescan_state(cam, link, state)
-                if not global_state.target_line_of_sight.is_set():
-                    global_state.SONAR_ROBOT_HACK.go_forward(
-                        np.array([0, 0]), np.array([0, max(moved - 100, 0)])
-                    )
+                # if not global_state.target_line_of_sight.is_set():
+                #     global_state.SONAR_ROBOT_HACK.go_forward(
+                #         np.array([0, 0]), np.array([0, max(moved - 100, 0)])
+                #     )
+
             else:
                 global_state.sonar_aligned.clear()
 
@@ -313,7 +314,7 @@ def sonar_align_loop(cam, state) -> float | None:
             problem: Box | None = next(
                 filter(
                     lambda b: (b.id != global_state.TARGET_BOX_ID)
-                    and (abs(b.x - target.x) < 700)
+                    and (abs(b.x - target.x) < 350)
                     and (target.y - b.y > 1_000),
                     boxes,
                 ),
