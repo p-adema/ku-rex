@@ -47,5 +47,5 @@ Race code:
 Other:
 
 - [calibration.py](calibration.py): Simple script to turn 180 degrees, use to check battery levels
-- [client_link.py](client_link.py)
-- [listen_map.py](listen_map.py)
+- [client_link.py](client_link.py): Robot code to send state information for visualisation (disabled for race)
+- [listen_map.py](listen_map.py): Server code to generate state visualisations
