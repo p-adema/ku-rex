@@ -171,7 +171,7 @@ def sonar_approach(robot: CalibratedRobot, state: KalmanStateFixed, goal: Box):
 
 
 def main_thread():
-    state = KalmanStateFixed(n_boxes=9)
+    state = KalmanStateFixed(n_boxes=12)
     with CalibratedRobot() as robot:
         t = threading.Thread(target=state_thread, args=[state])
         t.start()
